@@ -38,7 +38,7 @@ spec:
         - name: DU_ONE_FS
           value: "1"
         - name: ALLOWED_ROOTS
-          value: "/host/var/lib/containerd,/host/var/lib/kubelet,/host/var/log/pods,/host/var/log/containers,/host/run/containerd"
+          value: "/host/var/lib/containerd,/host/var/lib/containers,/host/var/lib/kubelet/pods,/host/var/log/pods,/host/var/log/containers"
         resources:
           requests:
             memory: "128Mi"
@@ -50,8 +50,11 @@ spec:
         - name: containerd
           mountPath: /host/var/lib/containerd
           readOnly: true
-        - name: kubelet
-          mountPath: /host/var/lib/kubelet
+        - name: containers
+          mountPath: /host/var/lib/containers
+          readOnly: true
+        - name: kubelet-pods
+          mountPath: /host/var/lib/kubelet/pods
           readOnly: true
         - name: log-pods
           mountPath: /host/var/log/pods
@@ -59,31 +62,28 @@ spec:
         - name: log-containers
           mountPath: /host/var/log/containers
           readOnly: true
-        - name: run-containerd
-          mountPath: /host/run/containerd
-          readOnly: true
       
       volumes:
       - name: containerd
         hostPath:
           path: /var/lib/containerd
-          type: Directory
-      - name: kubelet
+          type: DirectoryOrCreate
+      - name: containers
         hostPath:
-          path: /var/lib/kubelet
-          type: Directory
+          path: /var/lib/containers
+          type: DirectoryOrCreate
+      - name: kubelet-pods
+        hostPath:
+          path: /var/lib/kubelet/pods
+          type: DirectoryOrCreate
       - name: log-pods
         hostPath:
           path: /var/log/pods
-          type: Directory
+          type: DirectoryOrCreate
       - name: log-containers
         hostPath:
           path: /var/log/containers
-          type: Directory
-      - name: run-containerd
-        hostPath:
-          path: /run/containerd
-          type: Directory
+          type: DirectoryOrCreate
       
       dnsPolicy: ClusterFirst
       restartPolicy: Always

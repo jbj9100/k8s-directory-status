@@ -59,7 +59,7 @@ def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
     entries = []
     total_size = 0
     
-    # 1단계: 하위 디렉터리 목록 수집
+    # 1단계: 하위 디렉터리/파일 목록 수집
     subdirs = []
     files_size = 0
     
@@ -67,13 +67,12 @@ def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
         with os.scandir(path) as it:
             for entry in it:
                 try:
-                    if entry.is_symlink():
-                        continue
-                    
-                    if entry.is_dir(follow_symlinks=False):
+                    # 심볼릭 링크도 포함 (/var/log/containers 같은 경우)
+                    if entry.is_dir(follow_symlinks=True):
                         subdirs.append(entry.path)
-                    elif entry.is_file(follow_symlinks=False):
-                        files_size += entry.stat(follow_symlinks=False).st_size
+                    elif entry.is_file(follow_symlinks=True):
+                        stat_info = entry.stat(follow_symlinks=True)
+                        files_size += stat_info.st_size
                 except (PermissionError, OSError):
                     continue
     except (PermissionError, OSError):

@@ -27,11 +27,10 @@ cache = DuCache(ttl_sec=DU_CACHE_TTL_SEC)
 
 SHORTCUTS = [
     {"label": "containerd", "path": "/host/var/lib/containerd"},
-    {"label": "kubelet", "path": "/host/var/lib/kubelet"},
+    {"label": "containers", "path": "/host/var/lib/containers"},
     {"label": "kubelet pods", "path": "/host/var/lib/kubelet/pods"},
     {"label": "log pods", "path": "/host/var/log/pods"},
     {"label": "log containers", "path": "/host/var/log/containers"},
-    {"label": "run containerd", "path": "/host/run/containerd"},
 ]
 
 @app.get("/", response_class=HTMLResponse)

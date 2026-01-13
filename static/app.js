@@ -1,5 +1,44 @@
 let currentEntries = [];
 
+// 좌우 카드 크기 조절 기능
+document.addEventListener('DOMContentLoaded', function () {
+  const resizer = document.getElementById('resizer');
+  const leftCard = document.getElementById('leftCard');
+  const rightCard = document.getElementById('rightCard');
+
+  if (resizer && leftCard && rightCard) {
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', function (e) {
+      isResizing = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function (e) {
+      if (!isResizing) return;
+
+      const container = leftCard.parentElement;
+      const containerRect = container.getBoundingClientRect();
+      const leftWidth = e.clientX - containerRect.left;
+      const totalWidth = containerRect.width;
+      const leftPercent = (leftWidth / totalWidth) * 100;
+
+      if (leftPercent > 20 && leftPercent < 80) {
+        leftCard.style.flex = `0 0 ${leftPercent}%`;
+        rightCard.style.flex = `0 0 ${100 - leftPercent - 1}%`;
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      isResizing = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    });
+  }
+});
+
+
 function setPath(p) {
   document.getElementById('path').value = p;
   loadPath();
