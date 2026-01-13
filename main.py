@@ -26,12 +26,11 @@ app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__
 cache = DuCache(ttl_sec=DU_CACHE_TTL_SEC)
 
 SHORTCUTS = [
-    {"label": "Root (/)", "path": "/"},
-    {"label": "containerd (/var/lib/containerd)", "path": "/var/lib/containerd"},
-    {"label": "kubelet (/var/lib/kubelet)", "path": "/var/lib/kubelet"},
-    {"label": "kubelet pods (/var/lib/kubelet/pods)", "path": "/var/lib/kubelet/pods"},
-    {"label": "logs (/var/log/pods)", "path": "/var/log/pods"},
-    {"label": "run containerd (/run/containerd)", "path": "/run/containerd"},
+    {"label": "containerd", "path": "/host/var/lib/containerd"},
+    {"label": "kubelet", "path": "/host/var/lib/kubelet"},
+    {"label": "kubelet pods", "path": "/host/var/lib/kubelet/pods"},
+    {"label": "log pods", "path": "/host/var/log/pods"},
+    {"label": "log containers", "path": "/host/var/log/containers"},
 ]
 
 @app.get("/", response_class=HTMLResponse)

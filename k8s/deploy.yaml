@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: status
+  name: status
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: status
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: status
+    spec:
+      containers:
+      - image: 192.168.80.90:5000/status:v1
+        imagePullPolicy: IfNotPresent
+        name: status
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: DU_TIMEOUT_SEC
+          value: "15"
+        - name: DU_CACHE_TTL_SEC
+          value: "20"
+        - name: DU_ONE_FS
+          value: "1"
+        - name: ALLOWED_ROOTS
+          value: "/host/var/lib/containerd,/host/var/lib/kubelet,/host/var/log/pods,/host/var/log/containers"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: containerd
+          mountPath: /host/var/lib/containerd
+          readOnly: true
+        - name: kubelet
+          mountPath: /host/var/lib/kubelet
+          readOnly: true
+        - name: log-pods
+          mountPath: /host/var/log/pods
+          readOnly: true
+        - name: log-containers
+          mountPath: /host/var/log/containers
+          readOnly: true
+      
+      volumes:
+      - name: containerd
+        hostPath:
+          path: /var/lib/containerd
+          type: Directory
+      - name: kubelet
+        hostPath:
+          path: /var/lib/kubelet
+          type: Directory
+      - name: log-pods
+        hostPath:
+          path: /var/log/pods
+          type: Directory
+      - name: log-containers
+        hostPath:
+          path: /var/log/containers
+          type: Directory
+      
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: status
+  name: status
+  namespace: default
+spec:
+  clusterIP:
+  clusterIPs:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort:
+  selector:
+    app: status
+  sessionAffinity: None
+  type: NodePort
+status:
+  loadBalancer: {}
