@@ -49,14 +49,20 @@ def get_dir_size_fast(path: str) -> int:
         pass
     return total
 
-def run_du_fast(path: str, depth: int) -> List[DuEntry]:
-    """빠른 디렉터리 스캔 (depth=1만 지원)"""
+def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
+    """병렬 처리로 초고속 디렉터리 스캔 (depth=1만 지원)"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     if depth != 1:
         # depth > 1은 du 사용 (호환성)
         return run_du(path, depth, one_fs=True, timeout_sec=15)
     
     entries = []
     total_size = 0
+    
+    # 1단계: 하위 디렉터리 목록 수집
+    subdirs = []
+    files_size = 0
     
     try:
         with os.scandir(path) as it:
@@ -66,16 +72,34 @@ def run_du_fast(path: str, depth: int) -> List[DuEntry]:
                         continue
                     
                     if entry.is_dir(follow_symlinks=False):
-                        size = get_dir_size_fast(entry.path)
-                        entries.append(DuEntry(path=entry.path, bytes=size))
-                        total_size += size
+                        subdirs.append(entry.path)
                     elif entry.is_file(follow_symlinks=False):
-                        size = entry.stat(follow_symlinks=False).st_size
-                        total_size += size
+                        files_size += entry.stat(follow_symlinks=False).st_size
                 except (PermissionError, OSError):
                     continue
     except (PermissionError, OSError):
         pass
+    
+    total_size += files_size
+    
+    # 2단계: 병렬로 하위 디렉터리 스캔 (최대 10개 동시)
+    if subdirs:
+        with ThreadPoolExecutor(max_workers=min(10, len(subdirs))) as executor:
+            # 각 디렉터리를 별도 스레드에서 스캔
+            future_to_path = {
+                executor.submit(get_dir_size_fast, subdir): subdir 
+                for subdir in subdirs
+            }
+            
+            for future in as_completed(future_to_path):
+                subdir_path = future_to_path[future]
+                try:
+                    size = future.result()
+                    entries.append(DuEntry(path=subdir_path, bytes=size))
+                    total_size += size
+                except Exception:
+                    # 에러 무시하고 계속
+                    pass
     
     # 부모 디렉터리 총합 추가
     entries.append(DuEntry(path=path, bytes=total_size))
@@ -111,9 +135,9 @@ def list_children_sizes(path: str, depth: int, cache: DuCache, timeout_sec: int,
     key = (os.path.normpath(path), depth, one_fs)
     data = cache.get(key)
     if data is None:
-        # 빠른 Python 스캔 사용 (depth=1만)
+        # 병렬 처리로 초고속 스캔 (depth=1만)
         if depth == 1:
-            data = run_du_fast(path, depth)
+            data = run_du_parallel(path, depth)
         else:
             data = run_du(path, depth=depth, one_fs=one_fs, timeout_sec=timeout_sec)
         cache.set(key, data)
