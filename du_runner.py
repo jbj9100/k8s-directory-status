@@ -30,24 +30,23 @@ class DuCache:
     def set(self, key, data):
         self._cache[key] = (time.time(), data)
 
-def get_dir_size_fast(path: str) -> int:
-    """디렉터리 용량을 빠르게 계산 (심볼릭 링크 무시)"""
-    total = 0
+def get_dir_size_du(path: str) -> int:
+    """du -s로 디렉터리 용량 빠르게 계산"""
     try:
-        with os.scandir(path) as it:
-            for entry in it:
-                try:
-                    if entry.is_symlink():
-                        continue
-                    if entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
-                    elif entry.is_dir(follow_symlinks=False):
-                        total += get_dir_size_fast(entry.path)
-                except (PermissionError, OSError):
-                    continue
-    except (PermissionError, OSError):
+        result = subprocess.run(
+            ["du", "-sb", "--", path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        if result.returncode in (0, 1):
+            line = result.stdout.strip()
+            if line:
+                return int(line.split()[0])
+    except (subprocess.TimeoutExpired, ValueError, IndexError):
         pass
-    return total
+    return 0
 
 def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
     """병렬 처리로 초고속 디렉터리 스캔 (depth=1만 지원)"""
@@ -82,12 +81,12 @@ def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
     
     total_size += files_size
     
-    # 2단계: 병렬로 하위 디렉터리 스캔 (최대 10개 동시)
+    # 2단계: 병렬로 du -s 실행 (최대 20개 동시)
     if subdirs:
-        with ThreadPoolExecutor(max_workers=min(10, len(subdirs))) as executor:
-            # 각 디렉터리를 별도 스레드에서 스캔
+        with ThreadPoolExecutor(max_workers=min(20, len(subdirs))) as executor:
+            # 각 디렉터리를 별도 스레드에서 du -s로 스캔
             future_to_path = {
-                executor.submit(get_dir_size_fast, subdir): subdir 
+                executor.submit(get_dir_size_du, subdir): subdir 
                 for subdir in subdirs
             }
             
@@ -95,8 +94,9 @@ def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
                 subdir_path = future_to_path[future]
                 try:
                     size = future.result()
-                    entries.append(DuEntry(path=subdir_path, bytes=size))
-                    total_size += size
+                    if size > 0:
+                        entries.append(DuEntry(path=subdir_path, bytes=size))
+                        total_size += size
                 except Exception:
                     # 에러 무시하고 계속
                     pass
