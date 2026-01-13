@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>DF/DU UI</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Apple SD Gothic Neo", sans-serif; margin: 16px; }
+    h1 { margin: 0 0 8px 0; font-size: 20px; }
+    .muted { color: #666; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card { border: 1px solid #eee; border-radius: 14px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    th { font-size: 12px; color: #444; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .btn { cursor:pointer; border: 1px solid #ddd; background: #fafafa; padding: 6px 10px; border-radius: 999px; font-size: 12px; }
+    .btn:hover { background:#f3f3f3; }
+    .path { font-weight: 800; }
+    .error { color: #b00020; font-size: 12px; white-space: pre-wrap; }
+    .list { max-height: 520px; overflow:auto; }
+    .item { display:flex; justify-content:space-between; gap:10px; padding: 8px 6px; border-bottom: 1px solid #f2f2f2; }
+    .item:hover { background: #fafafa; }
+    .click { cursor: pointer; }
+    .badge { display:inline-block; border:1px solid #ddd; border-radius: 999px; padding: 2px 8px; font-size: 11px; color:#444; background:#fff; }
+  </style>
+</head>
+<body>
+  <div class="row" style="justify-content:space-between;">
+    <div>
+      <h1>DF/DU UI</h1>
+      <div class="muted">
+        df(마운트) + du(디렉터리) 탐색. du one-fs: <span class="badge">{{ "ON" if one_fs else "OFF" }}</span>
+        timeout: <span class="badge">{{ timeout }}s</span> cache: <span class="badge">{{ cache_ttl }}s</span>
+      </div>
+      {% if allowed_roots %}
+      <div class="muted">allowed roots: <span class="mono">{{ allowed_roots|join(", ") }}</span></div>
+      {% endif %}
+    </div>
+    <div class="row">
+      <input id="path" class="mono" style="width:520px; padding:8px 10px; border-radius:10px; border:1px solid #ddd;" value="/" />
+      <button class="btn" onclick="loadPath()">DU</button>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top: 12px;">
+    <div class="card">
+      <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+        <div style="font-weight:800;">Mounts (df)</div>
+        <div class="muted">click mountpoint → DU</div>
+      </div>
+      <div class="list">
+        <table>
+          <thead>
+            <tr>
+              <th>mountpoint</th>
+              <th>fstype</th>
+              <th>used</th>
+              <th>free</th>
+              <th>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for m in mounts %}
+            <tr class="click" onclick="setPath('{{ m.mountpoint }}')">
+              <td class="mono">{{ m.mountpoint }}</td>
+              <td class="mono">{{ m.fstype }}</td>
+              <td>{{ m.used_h }} / {{ m.total_h }}</td>
+              <td>{{ m.free_h }}</td>
+              <td>{{ m.percent }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:10px;">
+        <div class="muted" style="margin-bottom:6px;">Shortcuts</div>
+        <div class="row">
+          {% for s in shortcuts %}
+            <button class="btn" onclick="setPath('{{ s.path }}')">{{ s.label }}</button>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; margin-bottom:8px;">
+        <div>
+          <div class="path mono" id="curPath">/</div>
+          <div class="muted">total: <span class="badge" id="total">-</span></div>
+        </div>
+        <div class="row">
+          <button class="btn" onclick="goUp()">Up</button>
+          <button class="btn" onclick="reload()">Refresh</button>
+        </div>
+      </div>
+
+      <div id="err" class="error"></div>
+      <div class="list" id="list"></div>
+      <div class="muted" style="margin-top:8px;">
+        Tip: 큰 경로는 느릴 수 있어요. 기본 du는 one-fs(-x)로 mount 넘어가는 스캔을 막습니다.
+      </div>
+    </div>
+  </div>
+
+<script src="/static/app.js"></script>
+<script>loadPath();</script>
+</body>
+</html>
