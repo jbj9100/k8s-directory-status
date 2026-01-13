@@ -141,7 +141,10 @@
     <div class="card" id="leftCard" style="flex: 1; min-width: 200px; display: flex; flex-direction: column;">
       <div class="row" style="justify-content:space-between; margin-bottom:8px;">
         <div style="font-weight:800;">Mounts (df)</div>
-        <div class="muted">click mountpoint → DU</div>
+        <div class="row" style="gap:4px;">
+          <button class="btn" onclick="sortMountsByDu('desc')" style="font-size:11px; padding:4px 8px;">DU ↓</button>
+          <button class="btn" onclick="sortMountsByDu('asc')" style="font-size:11px; padding:4px 8px;">DU ↑</button>
+        </div>
       </div>
       <div class="list" style="flex: 1; overflow: auto;">
         <table>
@@ -152,6 +155,7 @@
               <th>used</th>
               <th>free</th>
               <th>%</th>
+              <th>DU Size</th>
             </tr>
           </thead>
           <tbody>
@@ -162,6 +166,7 @@
               <td>{{ m.used_h }} / {{ m.total_h }}</td>
               <td>{{ m.free_h }}</td>
               <td>{{ m.percent }}</td>
+              <td class="mono du-size" data-path="{{ m.mountpoint }}">⏳</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -178,7 +183,8 @@
       </div>
     </div>
 
-    <div id="resizer" style="width: 5px; cursor: col-resize; background: #ddd; border-radius: 3px; flex-shrink: 0;"></div>
+    <div id="resizer" style="width: 5px; cursor: col-resize; background: #ddd; border-radius: 3px; flex-shrink: 0;">
+    </div>
 
     <div class="card" id="rightCard" style="flex: 1; min-width: 200px; display: flex; flex-direction: column;">
       <div class="row" style="justify-content:space-between; margin-bottom:8px;">

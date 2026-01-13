@@ -36,6 +36,9 @@ document.addEventListener('DOMContentLoaded', function () {
       document.body.style.userSelect = '';
     });
   }
+
+  // 마운트 포인트별 DU 크기 로드
+  loadMountDuSizes();
 });
 
 
@@ -105,4 +108,33 @@ function sortEntries(order) {
 
 function escapeHtml(s) {
   return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+// 마운트 포인트별 DU 크기 로드
+async function loadMountDuSizes() {
+  const duCells = document.querySelectorAll('.du-size');
+
+  for (const cell of duCells) {
+    const path = cell.getAttribute('data-path');
+    if (!path) continue;
+
+    // 비동기로 각 경로의 du 크기 조회
+    loadSingleDuSize(cell, path);
+  }
+}
+
+async function loadSingleDuSize(cell, path) {
+  try {
+    const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=0`, { cache: "default" });
+    const j = await r.json();
+
+    if (r.ok && j.total_human) {
+      cell.textContent = j.total_human;
+      cell.setAttribute('data-bytes', j.total_bytes || 0);
+    } else {
+      cell.textContent = '-';
+    }
+  } catch (e) {
+    cell.textContent = '-';
+  }
 }
