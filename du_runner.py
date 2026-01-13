@@ -30,6 +30,57 @@ class DuCache:
     def set(self, key, data):
         self._cache[key] = (time.time(), data)
 
+def get_dir_size_fast(path: str) -> int:
+    """디렉터리 용량을 빠르게 계산 (심볼릭 링크 무시)"""
+    total = 0
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                    elif entry.is_dir(follow_symlinks=False):
+                        total += get_dir_size_fast(entry.path)
+                except (PermissionError, OSError):
+                    continue
+    except (PermissionError, OSError):
+        pass
+    return total
+
+def run_du_fast(path: str, depth: int) -> List[DuEntry]:
+    """빠른 디렉터리 스캔 (depth=1만 지원)"""
+    if depth != 1:
+        # depth > 1은 du 사용 (호환성)
+        return run_du(path, depth, one_fs=True, timeout_sec=15)
+    
+    entries = []
+    total_size = 0
+    
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_symlink():
+                        continue
+                    
+                    if entry.is_dir(follow_symlinks=False):
+                        size = get_dir_size_fast(entry.path)
+                        entries.append(DuEntry(path=entry.path, bytes=size))
+                        total_size += size
+                    elif entry.is_file(follow_symlinks=False):
+                        size = entry.stat(follow_symlinks=False).st_size
+                        total_size += size
+                except (PermissionError, OSError):
+                    continue
+    except (PermissionError, OSError):
+        pass
+    
+    # 부모 디렉터리 총합 추가
+    entries.append(DuEntry(path=path, bytes=total_size))
+    return entries
+
 def run_du(path: str, depth: int, one_fs: bool, timeout_sec: int) -> List[DuEntry]:
     cmd = ["du", "-B1", f"-d{depth}"]
     if one_fs:
@@ -60,7 +111,11 @@ def list_children_sizes(path: str, depth: int, cache: DuCache, timeout_sec: int,
     key = (os.path.normpath(path), depth, one_fs)
     data = cache.get(key)
     if data is None:
-        data = run_du(path, depth=depth, one_fs=one_fs, timeout_sec=timeout_sec)
+        # 빠른 Python 스캔 사용 (depth=1만)
+        if depth == 1:
+            data = run_du_fast(path, depth)
+        else:
+            data = run_du(path, depth=depth, one_fs=one_fs, timeout_sec=timeout_sec)
         cache.set(key, data)
 
     norm = os.path.normpath(path)

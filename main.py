@@ -14,7 +14,7 @@ except ImportError:
     from du_runner import DuCache, list_children_sizes
 
 DU_TIMEOUT_SEC = int(os.getenv("DU_TIMEOUT_SEC", "15"))
-DU_CACHE_TTL_SEC = int(os.getenv("DU_CACHE_TTL_SEC", "20"))
+DU_CACHE_TTL_SEC = int(os.getenv("DU_CACHE_TTL_SEC", "180"))  # 3분
 DU_ONE_FS = os.getenv("DU_ONE_FS", "1") not in ("0","false","False")
 ALLOWED_ROOTS = [p.strip() for p in os.getenv("ALLOWED_ROOTS", "").split(",") if p.strip()]
 
