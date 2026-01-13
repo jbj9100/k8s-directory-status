@@ -31,85 +31,44 @@ class DuCache:
         self._cache[key] = (time.time(), data)
 
 def get_dir_size_du(path: str) -> int:
-    """du -s로 디렉터리 용량 빠르게 계산"""
+    """du -s로 디렉터리 용량 빠르게 계산
+    
+    -s: 요약 (하위 디렉토리별 출력 안 함)
+    -b: 바이트 단위
+    """
     try:
         result = subprocess.run(
             ["du", "-sb", "--", path],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
             check=False
         )
         if result.returncode in (0, 1):
             line = result.stdout.strip()
             if line:
-                return int(line.split()[0])
-    except (subprocess.TimeoutExpired, ValueError, IndexError):
-        pass
+                size = int(line.split()[0])
+                return size
+        # 디버깅: stderr 출력
+        if result.stderr:
+            import sys
+            print(f"du warning for {path}: {result.stderr.strip()}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        import sys
+        print(f"du timeout for {path}", file=sys.stderr)
+    except (ValueError, IndexError) as e:
+        import sys
+        print(f"du parse error for {path}: {e}", file=sys.stderr)
     return 0
 
 def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
-    """병렬 처리로 초고속 디렉토리 스캔 (depth=1만 지원)
+    """디렉토리 스캔
     
-    find로 디렉토리 목록을 빠르게 얻은 후, 병렬로 du -s 실행하여
-    속도와 정확성(권한 문제 없음)을 모두 확보
+    du -d{depth} -x -B1을 사용하여 정확하고 빠른 크기 계산
+    find + 개별 du -s 방식은 du의 블록 계산 로직을 보존하지 못해 부정확
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    
-    if depth != 1:
-        # depth > 1은 기존 du 방식 사용
-        return run_du(path, depth, one_fs=True, timeout_sec=15)
-    
-    # 1단계: find로 직계 하위 디렉토리/파일 목록만 빠르게 조회
-    # -maxdepth 1: 바로 아래 항목만, -mindepth 1: 자기 자신 제외
-    try:
-        find_cmd = ["find", path, "-maxdepth", "1", "-mindepth", "1"]
-        result = subprocess.run(
-            find_cmd,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False
-        )
-        
-        if result.returncode not in (0, 1):
-            # find 실패 시 폴백
-            return run_du(path, depth=1, one_fs=True, timeout_sec=15)
-        
-        items = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        
-    except (subprocess.TimeoutExpired, Exception):
-        # find 실패 시 폴백
-        return run_du(path, depth=1, one_fs=True, timeout_sec=15)
-    
-    if not items:
-        # 빈 디렉토리인 경우
-        return [DuEntry(path=path, bytes=0)]
-    
-    # 2단계: 디렉토리는 du -s로, 파일은 du -b로 병렬 조회
-    entries = []
-    total_size = 0
-    
-    with ThreadPoolExecutor(max_workers=min(20, len(items))) as executor:
-        future_to_path = {
-            executor.submit(get_dir_size_du, item): item 
-            for item in items
-        }
-        
-        for future in as_completed(future_to_path):
-            item_path = future_to_path[future]
-            try:
-                size = future.result()
-                if size >= 0:  # 0도 포함 (빈 디렉토리)
-                    entries.append(DuEntry(path=item_path, bytes=size))
-                    total_size += size
-            except Exception:
-                # 개별 항목 실패는 무시
-                pass
-    
-    # 부모 디렉토리 총합 추가
-    entries.append(DuEntry(path=path, bytes=total_size))
-    return entries
+    # 모든 경우에 du 명령어 직접 사용 (가장 정확하고 안정적)
+    return run_du(path, depth=depth, one_fs=True, timeout_sec=15)
 
 def run_du(path: str, depth: int, one_fs: bool, timeout_sec: int) -> List[DuEntry]:
     cmd = ["du", "-B1", f"-d{depth}"]
