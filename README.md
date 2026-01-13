@@ -13,7 +13,7 @@
 conda create -n k8s-directory-status  python=3.10
 conda activate k8s-directory-status
 python -m pip install -r requirements.txt
-python -m uvicorn main:app --reload --port=87800087 --host=0.0.0.0
+python -m uvicorn main:app --reload --port=8000 --host=0.0.0.0
 ```
 
 브라우저:

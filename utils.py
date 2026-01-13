@@ -17,8 +17,8 @@ def is_safe_abs_path(p: str) -> bool:
         return False
     if not os.path.isabs(p):
         return False
-    norm = os.path.normpath(p)
-    return norm.startswith("/")
+    # Windows (C:\) 및 Linux (/) 모두 지원
+    return True
 
 def is_within(base: str, target: str) -> bool:
     base = os.path.normpath(base)

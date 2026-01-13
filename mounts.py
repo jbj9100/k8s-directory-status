@@ -1,7 +1,10 @@
 from __future__ import annotations
 from typing import List, Dict, Any
 import psutil
-from .utils import human_bytes
+try:
+    from .utils import human_bytes
+except ImportError:
+    from utils import human_bytes
 
 def get_mounts() -> List[Dict[str, Any]]:
     parts = psutil.disk_partitions(all=True)

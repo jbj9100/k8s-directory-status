@@ -1,21 +1,23 @@
-function setPath(p){
+let currentEntries = [];
+
+function setPath(p) {
   document.getElementById('path').value = p;
   loadPath();
 }
-function goUp(){
+function goUp() {
   const cur = (document.getElementById('path').value || "/").trim();
-  if(cur === "/") return;
+  if (cur === "/") return;
   const parts = cur.split("/").filter(Boolean);
   parts.pop();
   const up = "/" + parts.join("/");
   setPath(up === "" ? "/" : up);
 }
-function reload(){ loadPath(true); }
+function reload() { loadPath(true); }
 
-async function loadPath(force=false){
+async function loadPath(force = false) {
   const pathEl = document.getElementById('path');
   let p = (pathEl.value || "/").trim();
-  if(!p.startsWith("/")) p = "/" + p;
+  if (!p.startsWith("/")) p = "/" + p;
   pathEl.value = p;
 
   document.getElementById('err').textContent = "";
@@ -24,27 +26,28 @@ async function loadPath(force=false){
   const list = document.getElementById('list');
   list.innerHTML = "<div class='muted'>loading…</div>";
 
-  try{
-    const r = await fetch(`/api/du?path=${encodeURIComponent(p)}&depth=1`, {cache: force ? "reload" : "no-store"});
+  try {
+    const r = await fetch(`/api/du?path=${encodeURIComponent(p)}&depth=1`, { cache: force ? "reload" : "no-store" });
     const j = await r.json();
-    if(!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
+    if (!r.ok) throw new Error(j.detail || `오류 발생 (HTTP ${r.status})`);
     document.getElementById('total').textContent = j.total_human || "-";
-    renderList(j.entries || []);
-  }catch(e){
+    currentEntries = j.entries || [];
+    renderList(currentEntries);
+  } catch (e) {
     document.getElementById('total').textContent = "-";
     list.innerHTML = "";
     document.getElementById('err').textContent = String(e);
   }
 }
 
-function renderList(entries){
+function renderList(entries) {
   const list = document.getElementById('list');
   list.innerHTML = "";
-  if(entries.length === 0){
+  if (entries.length === 0) {
     list.innerHTML = "<div class='muted'>No entries (or permission denied / empty)</div>";
     return;
   }
-  for(const e of entries){
+  for (const e of entries) {
     const row = document.createElement('div');
     row.className = "item";
     row.innerHTML = `<div class="mono click" title="${e.path}">${escapeHtml(e.name)}</div><div class="mono">${escapeHtml(e.human)}</div>`;
@@ -53,6 +56,14 @@ function renderList(entries){
   }
 }
 
-function escapeHtml(s){
-  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+function sortEntries(order) {
+  if (currentEntries.length === 0) return;
+  const sorted = [...currentEntries].sort((a, b) => {
+    return order === 'asc' ? a.bytes - b.bytes : b.bytes - a.bytes;
+  });
+  renderList(sorted);
+}
+
+function escapeHtml(s) {
+  return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }

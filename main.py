@@ -6,8 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from .mounts import get_mounts
-from .du_runner import DuCache, list_children_sizes
+try:
+    from .mounts import get_mounts
+    from .du_runner import DuCache, list_children_sizes
+except ImportError:
+    from mounts import get_mounts
+    from du_runner import DuCache, list_children_sizes
 
 DU_TIMEOUT_SEC = int(os.getenv("DU_TIMEOUT_SEC", "15"))
 DU_CACHE_TTL_SEC = int(os.getenv("DU_CACHE_TTL_SEC", "20"))

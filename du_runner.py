@@ -2,7 +2,10 @@ from __future__ import annotations
 import os, subprocess, time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
-from .utils import human_bytes, is_safe_abs_path, is_within
+try:
+    from .utils import human_bytes, is_safe_abs_path, is_within
+except ImportError:
+    from utils import human_bytes, is_safe_abs_path, is_within
 
 @dataclass(frozen=True)
 class DuEntry:
