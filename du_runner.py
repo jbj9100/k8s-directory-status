@@ -49,58 +49,65 @@ def get_dir_size_du(path: str) -> int:
     return 0
 
 def run_du_parallel(path: str, depth: int) -> List[DuEntry]:
-    """병렬 처리로 초고속 디렉터리 스캔 (depth=1만 지원)"""
+    """병렬 처리로 초고속 디렉토리 스캔 (depth=1만 지원)
+    
+    find로 디렉토리 목록을 빠르게 얻은 후, 병렬로 du -s 실행하여
+    속도와 정확성(권한 문제 없음)을 모두 확보
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     if depth != 1:
-        # depth > 1은 du 사용 (호환성)
+        # depth > 1은 기존 du 방식 사용
         return run_du(path, depth, one_fs=True, timeout_sec=15)
     
+    # 1단계: find로 직계 하위 디렉토리/파일 목록만 빠르게 조회
+    # -maxdepth 1: 바로 아래 항목만, -mindepth 1: 자기 자신 제외
+    try:
+        find_cmd = ["find", path, "-maxdepth", "1", "-mindepth", "1"]
+        result = subprocess.run(
+            find_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+        
+        if result.returncode not in (0, 1):
+            # find 실패 시 폴백
+            return run_du(path, depth=1, one_fs=True, timeout_sec=15)
+        
+        items = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        
+    except (subprocess.TimeoutExpired, Exception):
+        # find 실패 시 폴백
+        return run_du(path, depth=1, one_fs=True, timeout_sec=15)
+    
+    if not items:
+        # 빈 디렉토리인 경우
+        return [DuEntry(path=path, bytes=0)]
+    
+    # 2단계: 디렉토리는 du -s로, 파일은 du -b로 병렬 조회
     entries = []
     total_size = 0
     
-    # 1단계: 하위 디렉터리/파일 목록 수집
-    subdirs = []
-    files_size = 0
+    with ThreadPoolExecutor(max_workers=min(20, len(items))) as executor:
+        future_to_path = {
+            executor.submit(get_dir_size_du, item): item 
+            for item in items
+        }
+        
+        for future in as_completed(future_to_path):
+            item_path = future_to_path[future]
+            try:
+                size = future.result()
+                if size >= 0:  # 0도 포함 (빈 디렉토리)
+                    entries.append(DuEntry(path=item_path, bytes=size))
+                    total_size += size
+            except Exception:
+                # 개별 항목 실패는 무시
+                pass
     
-    try:
-        with os.scandir(path) as it:
-            for entry in it:
-                try:
-                    # 심볼릭 링크도 포함 (/var/log/containers 같은 경우)
-                    if entry.is_dir(follow_symlinks=True):
-                        subdirs.append(entry.path)
-                    elif entry.is_file(follow_symlinks=True):
-                        stat_info = entry.stat(follow_symlinks=True)
-                        files_size += stat_info.st_size
-                except (PermissionError, OSError):
-                    continue
-    except (PermissionError, OSError):
-        pass
-    
-    total_size += files_size
-    
-    # 2단계: 병렬로 du -s 실행 (최대 20개 동시)
-    if subdirs:
-        with ThreadPoolExecutor(max_workers=min(20, len(subdirs))) as executor:
-            # 각 디렉터리를 별도 스레드에서 du -s로 스캔
-            future_to_path = {
-                executor.submit(get_dir_size_du, subdir): subdir 
-                for subdir in subdirs
-            }
-            
-            for future in as_completed(future_to_path):
-                subdir_path = future_to_path[future]
-                try:
-                    size = future.result()
-                    if size > 0:
-                        entries.append(DuEntry(path=subdir_path, bytes=size))
-                        total_size += size
-                except Exception:
-                    # 에러 무시하고 계속
-                    pass
-    
-    # 부모 디렉터리 총합 추가
+    # 부모 디렉토리 총합 추가
     entries.append(DuEntry(path=path, bytes=total_size))
     return entries
 
