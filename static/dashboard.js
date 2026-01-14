@@ -87,16 +87,21 @@ function renderTable() {
 
     // Pod/Container 이름
     let nameDisplay = '';
-    if (m.pod) {
-      nameDisplay = `<div style="font-weight:bold;">${escapeHtml(m.pod)}</div>`;
-      if (m.container_name) {
-        nameDisplay += `<div style="font-size:10px;opacity:0.7;">${escapeHtml(m.container_name)}</div>`;
+    if (itemType === 'overlay') {
+      // overlay: Pod 이름 + Container 이름 + Container ID
+      if (m.pod) {
+        nameDisplay = `<div style="font-weight:bold;">${escapeHtml(m.pod)}</div>`;
+        if (m.container_name) {
+          nameDisplay += `<div style="font-size:10px;opacity:0.7;">${escapeHtml(m.container_name)}</div>`;
+        }
       }
-    } else if (m.volume_name) {
-      nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name)}</div>`;
-      nameDisplay += `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.pod_uid ? m.pod_uid.substring(0, 8) : '')}</div>`;
+      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Container ID: ${escapeHtml(m.container_id || '-')}</div>`;
+    } else if (itemType === 'emptydir') {
+      // emptyDir: 볼륨 이름 + Pod UID
+      nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name || '-')}</div>`;
+      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(m.pod_uid || '-')}</div>`;
     } else {
-      nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || '-')}</div>`;
+      nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || m.pod_uid || '-')}</div>`;
     }
 
     return `
