@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import subprocess
-from typing import Tuple
+from typing import Optional, Tuple
 
 try:
     from .utils import human_bytes
@@ -9,31 +9,70 @@ except ImportError:
     from utils import human_bytes
 
 
+def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
+    """overlay upperdir 추출"""
+    candidates = ["/host/proc/1/mountinfo", "/proc/1/mountinfo"]
+    
+    mountinfo_path = None
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            mountinfo_path = candidate
+            break
+    
+    if not mountinfo_path:
+        return None
+    
+    try:
+        with open(mountinfo_path, "r") as f:
+            for line in f:
+                if f" {mountpoint} " not in line:
+                    continue
+                if " - overlay " not in line:
+                    continue
+                
+                parts = line.split(" - overlay overlay ", 1)
+                if len(parts) != 2:
+                    continue
+                
+                opts = parts[1].strip()
+                for opt in opts.split(","):
+                    if opt.startswith("upperdir="):
+                        return opt[len("upperdir="):]
+        return None
+    except Exception:
+        return None
+
+
 def get_actual_mount_size(mountpoint: str, fstype: str = "") -> Tuple[int, str, str]:
     """
-    df로 나온 mountpoint 경로에 대해 단순히 du 실행
-    
-    Returns:
-        (bytes, human, status)
-        status: "ok" | "skip" | "error"
+    실제 디스크 사용량 조회
+    - overlay: upperdir만 (각 Pod의 writable layer) ← 범인 찾기!
+    - 일반: 경로 그대로
     """
-    # 루트는 du로 재면 너무 큼 -> skip 처리
     if mountpoint in ("/", "/host"):
         return -1, "N/A", "skip"
 
     timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "15"))
-
-    # mountpoint가 컨테이너 내부에 없고 /host로만 존재하면 /host prefix 추가
+    
     target_path = mountpoint
-    if not os.path.exists(target_path) and os.path.exists("/host" + mountpoint):
-        target_path = "/host" + mountpoint
+    
+    # overlay면 upperdir만 조회 (핵심!)
+    if fstype == "overlay":
+        mp = mountpoint[5:] if mountpoint.startswith("/host/") else mountpoint
+        upperdir = extract_overlay_upperdir(mp)
+        
+        if not upperdir:
+            return 0, "0 B", "ok"
+        
+        target_path = "/host" + upperdir if not upperdir.startswith("/host") else upperdir
+    else:
+        if not os.path.exists(target_path) and os.path.exists("/host" + mountpoint):
+            target_path = "/host" + mountpoint
 
-    # 경로 존재 확인
     if not os.path.exists(target_path):
-        return -1, "Path not found", "error"
+        return -1, "Not found", "error"
 
     try:
-        # 단순히 du -sh 실행 (df 경로 그대로)
         r = subprocess.run(
             ["du", "-sx", "-B1", "--", target_path],
             capture_output=True,
@@ -46,7 +85,6 @@ def get_actual_mount_size(mountpoint: str, fstype: str = "") -> Tuple[int, str, 
             size_bytes = int(r.stdout.split()[0])
             return size_bytes, human_bytes(size_bytes), "ok"
 
-        # du 실패
         err = (r.stderr or "").strip()
         return -1, f"du error: {err[:80]}", "error"
 
