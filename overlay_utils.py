@@ -87,8 +87,17 @@ def get_actual_mount_size(mountpoint: str, fstype: str) -> tuple[int, str]:
         if result.returncode in (0, 1):
             line = result.stdout.strip()
             if line:
-                size_bytes = int(line.split()[0])
-                return size_bytes, human_bytes(size_bytes)
+                parts = line.split()
+                if parts and parts[0]:
+                    try:
+                        size_bytes = int(parts[0])
+                        return size_bytes, human_bytes(size_bytes)
+                    except ValueError:
+                        return -1, f"Parse error: {parts[0]}"
+        
+        # stderr 확인
+        if result.stderr:
+            return -1, f"du error: {result.stderr[:50]}"
         
         return 0, "0 B"
     except subprocess.TimeoutExpired:

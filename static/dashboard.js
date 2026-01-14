@@ -56,18 +56,35 @@ function renderTable() {
 
 async function loadAllMountDuSizes() {
   const duCells = document.querySelectorAll('.du-size');
-
-  // 배치로 처리 (한 번에 5개씩)
-  const batchSize = 5;
   const allCells = Array.from(duCells);
 
-  for (let i = 0; i < allCells.length; i += batchSize) {
-    const batch = allCells.slice(i, i + batchSize);
+  // 초기에는 상위 100개만 조회
+  const initialLimit = 100;
+  const cellsToLoad = allCells.slice(0, initialLimit);
+
+  // 배치 크기 증가 (5 → 20)
+  const batchSize = 20;
+  let loaded = 0;
+
+  for (let i = 0; i < cellsToLoad.length; i += batchSize) {
+    const batch = cellsToLoad.slice(i, i + batchSize);
     const promises = batch.map(cell => {
       const path = cell.getAttribute('data-path');
       return loadSingleDuSize(cell, path);
     });
     await Promise.all(promises);
+
+    loaded += batch.length;
+    console.log(`Loaded ${loaded}/${cellsToLoad.length} mounts`);
+  }
+
+  // 나머지 경로는 "-"로 표시
+  if (allCells.length > initialLimit) {
+    for (let i = initialLimit; i < allCells.length; i++) {
+      allCells[i].textContent = '(Not loaded)';
+      allCells[i].style.color = '#999';
+      allCells[i].style.fontSize = '10px';
+    }
   }
 
   // 모든 로딩 완료 후 합산 계산 및 자동 정렬
@@ -76,13 +93,32 @@ async function loadAllMountDuSizes() {
 }
 
 async function loadSingleDuSize(cell, path) {
+  // "/" 경로는 너무 느려서 스킵
+  if (path === '/') {
+    cell.textContent = '-';
+    cell.setAttribute('data-bytes', '0');
+    cell.style.color = '#999';
+    return;
+  }
+
   try {
     const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=0`);
     const j = await r.json();
 
     if (r.ok && j.total_human) {
+      const bytes = j.total_bytes || 0;
+
+      // 0B이면 행 숨기기
+      if (bytes === 0) {
+        const row = cell.closest('tr');
+        if (row) {
+          row.style.display = 'none';
+        }
+        return;
+      }
+
       cell.textContent = j.total_human;
-      cell.setAttribute('data-bytes', j.total_bytes || 0);
+      cell.setAttribute('data-bytes', bytes);
     } else {
       // 에러 상세 표시
       cell.textContent = `❌ ${j.detail || r.status}`;
@@ -96,32 +132,62 @@ async function loadSingleDuSize(cell, path) {
     cell.style.color = '#d32f2f';
     cell.style.fontSize = '10px';
   }
+  calculateSummary(); // Update summary after each DU size is loaded
 }
 
 function calculateSummary() {
   const duCells = document.querySelectorAll('.du-size');
   let totalBytes = 0;
   let successCount = 0;
+  let pendingCount = 0;
+  let hiddenCount = 0;
+
+  // 총합에서 제외할 상위 디렉터리 (중복 방지)
+  const excludeFromTotal = [
+    '/',
+    '/host/var/lib/containers',
+    '/host/var/lib/kubelet/pods',
+    '/host/var/lib/containerd'
+  ];
 
   duCells.forEach(cell => {
-    const bytes = parseInt(cell.getAttribute('data-bytes') || '0');
-    if (bytes > 0) {
-      totalBytes += bytes;
-      successCount++;
+    const row = cell.closest('tr');
+    // 숨겨진 행은 건너뛰기
+    if (row && row.style.display === 'none') {
+      hiddenCount++;
+      return;
+    }
+
+    const text = cell.textContent;
+    if (text.includes('⏳') || text.includes('Loading')) {
+      pendingCount++;
+    } else {
+      const bytes = parseInt(cell.getAttribute('data-bytes') || '0');
+      if (bytes > 0) {
+        successCount++;
+
+        // 상위 디렉터리는 총합에서 제외
+        const path = cell.getAttribute('data-path');
+        if (!excludeFromTotal.includes(path)) {
+          totalBytes += bytes;
+        }
+      }
     }
   });
+
+  const visibleCount = duCells.length - hiddenCount;
 
   const summaryBox = document.getElementById('summary-box');
   summaryBox.style.display = 'flex';
   summaryBox.className = 'summary-box';
   summaryBox.innerHTML = `
     <div class="summary-item">
-      <div class="summary-label">Total Mounts</div>
-      <div class="summary-value">${duCells.length}</div>
+      <div class="summary-label">Visible / Hidden</div>
+      <div class="summary-value">${visibleCount} / ${hiddenCount}</div>
     </div>
     <div class="summary-item">
-      <div class="summary-label">Loaded</div>
-      <div class="summary-value">${successCount}</div>
+      <div class="summary-label">Loaded / Pending</div>
+      <div class="summary-value">${successCount} / ${pendingCount}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Total DU Size</div>
