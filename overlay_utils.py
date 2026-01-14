@@ -10,7 +10,17 @@ except ImportError:
 
 
 def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
-    """overlay upperdir 추출"""
+    """
+    overlay upperdir 추출
+    
+    mountpoint: df에서 가져온 경로 (예: /host/run/containerd/.../rootfs)
+    mountinfo에는 호스트 경로로 저장됨 (예: /run/containerd/.../rootfs)
+    """
+    # /host prefix 제거 (mountinfo는 호스트 경로 기준)
+    search_mp = mountpoint
+    if search_mp.startswith("/host"):
+        search_mp = mountpoint[5:]  # /host 제거
+    
     candidates = ["/host/proc/1/mountinfo", "/proc/1/mountinfo"]
     
     mountinfo_path = None
@@ -25,7 +35,8 @@ def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
     try:
         with open(mountinfo_path, "r") as f:
             for line in f:
-                if f" {mountpoint} " not in line:
+                # mountinfo에는 호스트 경로로 저장됨
+                if f" {search_mp} " not in line:
                     continue
                 if " - overlay " not in line:
                     continue
@@ -52,20 +63,22 @@ def get_actual_mount_size(mountpoint: str, fstype: str = "") -> Tuple[int, str, 
     if mountpoint in ("/", "/host"):
         return -1, "N/A", "skip"
 
-    timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "15"))
+    timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "60"))  # 기본 60초
     
     target_path = mountpoint
     
     # overlay면 upperdir만 조회 (핵심!)
     if fstype == "overlay":
-        mp = mountpoint[5:] if mountpoint.startswith("/host/") else mountpoint
-        upperdir = extract_overlay_upperdir(mp)
+        upperdir = extract_overlay_upperdir(mountpoint)
         
         if not upperdir:
+            # upperdir 못 찾으면 0 (공유 레이어만 있는 경우)
             return 0, "0 B", "ok"
         
-        target_path = "/host" + upperdir if not upperdir.startswith("/host") else upperdir
+        # upperdir는 호스트 경로이므로 /host prefix 추가
+        target_path = "/host" + upperdir
     else:
+        # 일반 마운트는 /host prefix 보정
         if not os.path.exists(target_path) and os.path.exists("/host" + mountpoint):
             target_path = "/host" + mountpoint
 
