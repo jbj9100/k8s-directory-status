@@ -3,34 +3,105 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>DF/DU UI</title>
+  <title>Node Monitor Dashboard</title>
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Apple SD Gothic Neo", sans-serif;
-      margin: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f5f5f5;
     }
 
     h1 {
+      margin: 0 0 12px 0;
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    h2 {
       margin: 0 0 8px 0;
-      font-size: 20px;
+      font-size: 16px;
+      font-weight: 600;
     }
 
-    .muted {
-      color: #666;
-      font-size: 12px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
     }
 
     .card {
-      border: 1px solid #eee;
-      border-radius: 14px;
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+
+    .metric-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .metric-sub {
+      font-size: 11px;
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+
+    .paths-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .path-item {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
       padding: 12px;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      transition: all 0.2s;
+    }
+
+    .path-item:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      transform: translateY(-2px);
+    }
+
+    .path-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-family: monospace;
+    }
+
+    .path-size {
+      font-size: 24px;
+      font-weight: 700;
+      color: #667eea;
     }
 
     table {
@@ -41,175 +112,111 @@
     th,
     td {
       text-align: left;
-      padding: 6px 6px;
+      padding: 8px;
       border-bottom: 1px solid #f0f0f0;
       font-size: 13px;
     }
 
     th {
-      font-size: 12px;
-      color: #444;
+      color: #666;
+      font-weight: 600;
     }
 
     .mono {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: "SF Mono", Monaco, monospace;
     }
 
-    .row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      flex-wrap: wrap;
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #999;
     }
 
-    .btn {
-      cursor: pointer;
-      border: 1px solid #ddd;
-      background: #fafafa;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-    }
-
-    .btn:hover {
-      background: #f3f3f3;
-    }
-
-    .path {
-      font-weight: 800;
-    }
-
-    .error {
-      color: #b00020;
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-
-    .list {
-      max-height: 520px;
-      overflow: auto;
-    }
-
-    .item {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 8px 6px;
-      border-bottom: 1px solid #f2f2f2;
-    }
-
-    .item:hover {
-      background: #fafafa;
-    }
-
-    .click {
-      cursor: pointer;
+    .process-table {
+      max-height: 300px;
+      overflow-y: auto;
     }
 
     .badge {
       display: inline-block;
-      border: 1px solid #ddd;
-      border-radius: 999px;
-      padding: 2px 8px;
+      padding: 4px 8px;
+      border-radius: 4px;
       font-size: 11px;
-      color: #444;
-      background: #fff;
+      font-weight: 600;
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+
+    .refresh-btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .refresh-btn:hover {
+      background: #5568d3;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
     }
   </style>
 </head>
 
 <body>
-  <div class="row" style="justify-content:space-between;">
-    <div>
-      <h1>DF/DU UI</h1>
-      <div class="muted">
-        df(마운트) + du(디렉터리) 탐색. du one-fs: <span class="badge">{{ "ON" if one_fs else "OFF" }}</span>
-        timeout: <span class="badge">{{ timeout }}s</span> cache: <span class="badge">{{ cache_ttl }}s</span>
-      </div>
-      {% if allowed_roots %}
-      <div class="muted">allowed roots: <span class="mono">{{ allowed_roots|join(", ") }}</span></div>
-      {% endif %}
+  <div class="dashboard">
+    <div class="header">
+      <h1>🖥️ Node Monitor Dashboard</h1>
+      <button class="refresh-btn" onclick="loadAll()">🔄 Refresh</button>
     </div>
-    <div class="row">
-      <input id="path" class="mono" style="width:520px; padding:8px 10px; border-radius:10px; border:1px solid #ddd;"
-        value="/" />
-      <button class="btn" onclick="loadPath()">DU</button>
-    </div>
-  </div>
 
-  <div style="display: flex; gap: 12px; margin-top: 12px; height: 600px;">
-    <div class="card" id="leftCard" style="flex: 1; min-width: 200px; display: flex; flex-direction: column;">
-      <div class="row" style="justify-content:space-between; margin-bottom:8px;">
-        <div style="font-weight:800;">Mounts (df)</div>
-        <div class="row" style="gap:4px;">
-          <button class="btn" onclick="sortMountsByDu('desc')" style="font-size:11px; padding:4px 8px;">DU ↓</button>
-          <button class="btn" onclick="sortMountsByDu('asc')" style="font-size:11px; padding:4px 8px;">DU ↑</button>
-        </div>
-      </div>
-      <div class="list" style="flex: 1; overflow: auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>mountpoint</th>
-              <th>fstype</th>
-              <th>used</th>
-              <th>free</th>
-              <th>%</th>
-              <th>DU Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for m in mounts %}
-            <tr class="click" onclick="setPath('{{ m.mountpoint }}')">
-              <td class="mono">{{ m.mountpoint }}</td>
-              <td class="mono">{{ m.fstype }}</td>
-              <td>{{ m.used_h }} / {{ m.total_h }}</td>
-              <td>{{ m.free_h }}</td>
-              <td>{{ m.percent }}</td>
-              <td class="mono du-size" data-path="{{ m.mountpoint }}">⏳</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="margin-top:10px;">
-        <div class="muted" style="margin-bottom:6px;">Shortcuts</div>
-        <div class="row">
-          {% for s in shortcuts %}
-          <button class="btn" onclick="setPath('{{ s.path }}')">{{ s.label }}</button>
-          {% endfor %}
-        </div>
+    <!-- 실시간 시스템 모니터링 -->
+    <div class="card">
+      <h2>⚡ Real-time System Stats</h2>
+      <div class="metrics" id="system-metrics">
+        <div class="loading">Loading...</div>
       </div>
     </div>
 
-    <div id="resizer" style="width: 5px; cursor: col-resize; background: #ddd; border-radius: 3px; flex-shrink: 0;">
+    <!-- 주요 경로 디스크 사용량 -->
+    <div class="card">
+      <h2>💾 Key Paths Disk Usage</h2>
+      <div class="paths-grid" id="paths-grid">
+        <div class="loading">Loading...</div>
+      </div>
     </div>
 
-    <div class="card" id="rightCard" style="flex: 1; min-width: 200px; display: flex; flex-direction: column;">
-      <div class="row" style="justify-content:space-between; margin-bottom:8px;">
-        <div>
-          <div class="path mono" id="curPath">/</div>
-          <div class="muted">total: <span class="badge" id="total">-</span></div>
-        </div>
-        <div class="row">
-          <button class="btn" onclick="goUp()">Up</button>
-          <button class="btn" onclick="reload()">Refresh</button>
-          <button class="btn" onclick="sortEntries('desc')">용량 ↓</button>
-          <button class="btn" onclick="sortEntries('asc')">용량 ↑</button>
-        </div>
+    <!-- Top 프로세스 -->
+    <div class="card">
+      <h2>📊 Top Processes (CPU)</h2>
+      <div class="process-table" id="top-processes">
+        <div class="loading">Loading...</div>
       </div>
+    </div>
 
-      <div id="err" class="error"></div>
-      <div class="list" id="list" style="flex: 1;"></div>
-      <div class="muted" style="margin-top:8px;">
-        Tip: 큰 경로는 느릴 수 있어요. 기본 du는 one-fs(-x)로 mount 넘어가는 스캔을 막습니다.
+    <!-- 마운트 포인트 -->
+    <div class="card">
+      <h2>📁 Mount Points</h2>
+      <div id="mounts-table">
+        <div class="loading">Loading...</div>
       </div>
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
-  <script>loadPath();</script>
+  <script src="/static/dashboard.js"></script>
+  <script>
+    loadAll();
+    // 3초마다 자동 새로고침
+    setInterval(loadAll, 3000);
+  </script>
 </body>
 
 </html>

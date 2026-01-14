@@ -64,3 +64,117 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
         raise HTTPException(status_code=504, detail=f"du timeout after {DU_TIMEOUT_SEC}s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/stats")
+async def api_system_stats():
+    """실시간 시스템 모니터링 정보"""
+    import psutil
+    
+    # CPU 정보
+    cpu_percent = psutil.cpu_percent(interval=0.1, percpu=False)
+    cpu_count = psutil.cpu_count()
+    
+    # 메모리 정보
+    mem = psutil.virtual_memory()
+    
+    # 디스크 I/O
+    disk_io = psutil.disk_io_counters()
+    
+    # 네트워크 I/O
+    net_io = psutil.net_io_counters()
+    
+    # Top 프로세스 (CPU 기준)
+    processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+        try:
+            pinfo = proc.info
+            processes.append({
+                "pid": pinfo['pid'],
+                "name": pinfo['name'],
+                "cpu": pinfo['cpu_percent'] or 0,
+                "mem": pinfo['memory_percent'] or 0
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    
+    # CPU 사용률 높은 순으로 정렬
+    processes.sort(key=lambda x: x['cpu'], reverse=True)
+    top_processes = processes[:10]
+    
+    return JSONResponse({
+        "cpu": {
+            "percent": cpu_percent,
+            "count": cpu_count
+        },
+        "memory": {
+            "total": mem.total,
+            "used": mem.used,
+            "free": mem.free,
+            "percent": mem.percent,
+            "total_h": human_bytes(mem.total),
+            "used_h": human_bytes(mem.used),
+            "free_h": human_bytes(mem.free)
+        },
+        "disk_io": {
+            "read_bytes": disk_io.read_bytes if disk_io else 0,
+            "write_bytes": disk_io.write_bytes if disk_io else 0,
+            "read_h": human_bytes(disk_io.read_bytes) if disk_io else "0 B",
+            "write_h": human_bytes(disk_io.write_bytes) if disk_io else "0 B"
+        },
+        "net_io": {
+            "bytes_sent": net_io.bytes_sent if net_io else 0,
+            "bytes_recv": net_io.bytes_recv if net_io else 0,
+            "sent_h": human_bytes(net_io.bytes_sent) if net_io else "0 B",
+            "recv_h": human_bytes(net_io.bytes_recv) if net_io else "0 B"
+        },
+        "top_processes": top_processes
+    })
+
+@app.get("/api/paths/summary")
+async def api_paths_summary():
+    """주요 경로별 디스크 사용량 병렬 조회"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from du_runner import list_children_sizes
+    
+    # 조회할 주요 경로
+    paths = [
+        "/host/var/lib/containerd",
+        "/host/var/lib/containers",
+        "/host/var/lib/kubelet/pods",
+        "/host/var/log/pods",
+        "/host/var/log/containers"
+    ]
+    
+    results = []
+    
+    def get_path_size(path):
+        try:
+            data = list_children_sizes(
+                path=path, depth=0, cache=cache,
+                timeout_sec=10, one_fs=DU_ONE_FS, allowed_roots=ALLOWED_ROOTS
+            )
+            return {
+                "path": path,
+                "total_bytes": data.get("total_bytes", 0),
+                "total_human": data.get("total_human", "0 B"),
+                "status": "ok"
+            }
+        except Exception as e:
+            return {
+                "path": path,
+                "total_bytes": 0,
+                "total_human": "Error",
+                "status": "error",
+                "error": str(e)
+            }
+    
+    # 병렬로 모든 경로 조회
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_path = {executor.submit(get_path_size, p): p for p in paths}
+        for future in as_completed(future_to_path):
+            results.append(future.result())
+    
+    # 용량 큰 순으로 정렬
+    results.sort(key=lambda x: x["total_bytes"], reverse=True)
+    
+    return JSONResponse({"paths": results})
