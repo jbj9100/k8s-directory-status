@@ -62,6 +62,9 @@ spec:
         - name: log-containers
           mountPath: /host/var/log/containers
           readOnly: true
+        - name: host-proc
+          mountPath: /host/proc
+          readOnly: true
       
       volumes:
       - name: containerd
@@ -84,11 +87,17 @@ spec:
         hostPath:
           path: /var/log/containers
           type: DirectoryOrCreate
+      - name: host-proc
+        hostPath:
+          path: /proc
+          type: Directory
       
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}
+      nodeSelector:
+        kubernetes.io/hostname: k8s-master
 ---
 apiVersion: v1
 kind: Service

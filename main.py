@@ -54,6 +54,41 @@ async def api_mounts():
 @app.get("/api/du")
 async def api_du(path: str = Query("/", description="absolute path"), depth: int = Query(1, ge=0, le=5)):
     try:
+        # depth=0일 때는 빠른 du -s 사용
+        if depth == 0:
+            import subprocess
+            # ALLOWED_ROOTS 체크
+            if ALLOWED_ROOTS:
+                from utils import is_within
+                if not any(is_within(r, path) for r in ALLOWED_ROOTS):
+                    raise HTTPException(status_code=403, detail="path is outside allowed roots")
+            
+            # du -s -x로 빠르게 조회 (타임아웃 5초)
+            try:
+                result = subprocess.run(
+                    ["du", "-s", "-x", "-B1", "--", path],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False
+                )
+                
+                if result.returncode in (0, 1):
+                    line = result.stdout.strip()
+                    if line:
+                        size_bytes = int(line.split()[0])
+                        return JSONResponse({
+                            "path": path,
+                            "total_bytes": size_bytes,
+                            "total_human": human_bytes(size_bytes),
+                            "entries": []
+                        })
+            except subprocess.TimeoutExpired:
+                raise HTTPException(status_code=504, detail="du timeout (path too large)")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        # depth > 0일 때는 기존 로직
         return JSONResponse(list_children_sizes(
             path=path, depth=depth, cache=cache,
             timeout_sec=DU_TIMEOUT_SEC, one_fs=DU_ONE_FS, allowed_roots=ALLOWED_ROOTS
@@ -69,8 +104,14 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
 
 @app.get("/api/system/stats")
 async def api_system_stats():
-    """실시간 시스템 모니터링 정보"""
+    """실시간 시스템 모니터링 정보 (호스트 노드)"""
     import psutil
+    import os
+    
+    # 호스트 /proc 사용 (컨테이너가 아닌 노드 정보)
+    if os.path.exists('/host/proc'):
+        # psutil이 호스트 /proc을 사용하도록 설정
+        psutil.PROCFS_PATH = '/host/proc'
     
     # CPU 정보
     cpu_percent = psutil.cpu_percent(interval=0.1, percpu=False)

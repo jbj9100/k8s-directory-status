@@ -116,11 +116,12 @@ async function loadMounts() {
             <th>Used / Total</th>
             <th>Free</th>
             <th>Usage</th>
+            <th>DU Size</th>
           </tr>
         </thead>
         <tbody>
           ${data.map(m => `
-            <tr>
+            <tr class="mount-row" onclick="openPathModal('${escapeHtml(m.mountpoint)}')">
               <td class="mono">${escapeHtml(m.mountpoint)}</td>
               <td class="mono">${escapeHtml(m.fstype)}</td>
               <td>${escapeHtml(m.used_h)} / ${escapeHtml(m.total_h)}</td>
@@ -128,6 +129,7 @@ async function loadMounts() {
               <td>
                 <span class="badge">${m.percent}%</span>
               </td>
+              <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}">⏳</td>
             </tr>
           `).join('')}
         </tbody>
@@ -135,9 +137,122 @@ async function loadMounts() {
     `;
 
     document.getElementById('mounts-table').innerHTML = html;
+
+    // 자동으로 각 마운트 포인트의 DU 크기 조회
+    loadAllMountDuSizes();
   } catch (e) {
     console.error('Failed to load mounts:', e);
     document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
+  }
+}
+
+async function loadAllMountDuSizes() {
+  const duCells = document.querySelectorAll('.du-size');
+
+  // 중요한 마운트 포인트만 선별 (overlayfs, tmpfs 제외)
+  const importantCells = Array.from(duCells).filter(cell => {
+    const path = cell.getAttribute('data-path');
+    // overlayfs, tmpfs 제외하고 주요 경로만
+    if (path.includes('/run/containerd/io.containerd')) return false;
+    if (path.includes('/var/lib/containers/storage/overlay')) return false;
+    if (path.includes('/var/lib/kubelet/pods/') && path.includes('/volumes/')) return false;
+
+    // 주요 경로만 조회
+    const important = [
+      '/',
+      '/dev',
+      '/dev/shm',
+      '/host/var/lib/containerd',
+      '/host/var/lib/containers',
+      '/host/var/lib/kubelet/pods',
+      '/host/var/log/pods',
+      '/host/var/log/containers'
+    ];
+
+    return important.includes(path) || path.startsWith('/host/');
+  });
+
+  // 병렬로 중요한 경로만 조회 (최대 10개 동시)
+  const batchSize = 10;
+  for (let i = 0; i < importantCells.length; i += batchSize) {
+    const batch = importantCells.slice(i, i + batchSize);
+    const promises = batch.map(cell => {
+      const path = cell.getAttribute('data-path');
+      return loadSingleDuSize(cell, path);
+    });
+    await Promise.all(promises);
+  }
+
+  // 나머지는 "-"로 표시
+  duCells.forEach(cell => {
+    if (!importantCells.includes(cell) && cell.textContent === '⏳') {
+      cell.textContent = '-';
+    }
+  });
+}
+
+async function loadSingleDuSize(cell, path) {
+  try {
+    const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=0`);
+    const j = await r.json();
+
+    if (r.ok && j.total_human) {
+      cell.textContent = j.total_human;
+      cell.setAttribute('data-bytes', j.total_bytes || 0);
+    } else {
+      cell.textContent = '-';
+    }
+  } catch (e) {
+    cell.textContent = '-';
+  }
+}
+
+let currentModalPath = '/';
+
+function openPathModal(path) {
+  currentModalPath = path;
+  document.getElementById('path-modal').style.display = 'flex';
+  loadModalPath(path);
+}
+
+function closeModal() {
+  document.getElementById('path-modal').style.display = 'none';
+}
+
+function modalGoUp() {
+  if (currentModalPath === '/') return;
+  const parts = currentModalPath.split('/').filter(Boolean);
+  parts.pop();
+  const up = '/' + parts.join('/');
+  loadModalPath(up === '' ? '/' : up);
+}
+
+async function loadModalPath(path) {
+  currentModalPath = path;
+  document.getElementById('modal-path').textContent = path;
+  document.getElementById('modal-body').innerHTML = '<div class="loading">Loading...</div>';
+
+  try {
+    const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=1`);
+    const data = await r.json();
+
+    if (!r.ok) throw new Error(data.detail || 'Failed to load path');
+
+    if (!data.entries || data.entries.length === 0) {
+      document.getElementById('modal-body').innerHTML = '<div class="loading">Empty or no permission</div>';
+      return;
+    }
+
+    const html = data.entries.map(e => `
+      <div class="dir-item" onclick="loadModalPath('${escapeHtml(e.path)}')">
+        <span class="mono">📁 ${escapeHtml(e.name)}</span>
+        <span class="mono">${escapeHtml(e.human)}</span>
+      </div>
+    `).join('');
+
+    document.getElementById('modal-body').innerHTML = html;
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = `<div class="loading">Error: ${escapeHtml(String(e))}</div>`;
   }
 }
 
