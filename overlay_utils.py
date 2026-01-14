@@ -1,7 +1,8 @@
 from __future__ import annotations
 import os
 import subprocess
-from typing import Optional, Tuple
+import re
+from typing import Optional, Tuple, List, Dict
 
 try:
     from .utils import human_bytes
@@ -9,18 +10,16 @@ except ImportError:
     from utils import human_bytes
 
 
-def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
+def get_overlay_upperdirs() -> List[Dict]:
     """
-    overlay upperdir 추출
+    mountinfo에서 직접 overlay upperdir 목록 추출
+    df 없이 바로 각 컨테이너의 writable layer 조회
     
-    mountpoint: df에서 가져온 경로 (예: /host/run/containerd/.../rootfs)
-    mountinfo에는 호스트 경로로 저장됨 (예: /run/containerd/.../rootfs)
+    Returns:
+        [{"mountpoint": "/run/containerd/.../rootfs", 
+          "upperdir": "/var/lib/containerd/.../diff",
+          "container_id": "abc123..."}]
     """
-    # /host prefix 제거 (mountinfo는 호스트 경로 기준)
-    search_mp = mountpoint
-    if search_mp.startswith("/host"):
-        search_mp = mountpoint[5:]  # /host 제거
-    
     candidates = ["/host/proc/1/mountinfo", "/proc/1/mountinfo"]
     
     mountinfo_path = None
@@ -30,61 +29,63 @@ def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
             break
     
     if not mountinfo_path:
-        return None
+        return []
     
+    results = []
     try:
         with open(mountinfo_path, "r") as f:
             for line in f:
-                # mountinfo에는 호스트 경로로 저장됨
-                if f" {search_mp} " not in line:
-                    continue
                 if " - overlay " not in line:
                     continue
                 
-                parts = line.split(" - overlay overlay ", 1)
-                if len(parts) != 2:
+                # mountpoint 추출 (5번째 필드)
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                mountpoint = parts[4]
+                
+                # k8s.io 컨테이너만 (containerd)
+                if "/k8s.io/" not in mountpoint:
                     continue
                 
-                opts = parts[1].strip()
-                for opt in opts.split(","):
-                    if opt.startswith("upperdir="):
-                        return opt[len("upperdir="):]
-        return None
+                # upperdir 추출
+                match = re.search(r"upperdir=([^,\s]+)", line)
+                if not match:
+                    continue
+                upperdir = match.group(1)
+                
+                # 컨테이너 ID 추출 (경로에서)
+                # /run/containerd/io.containerd.runtime.v2.task/k8s.io/{container_id}/rootfs
+                container_id = ""
+                if "/k8s.io/" in mountpoint:
+                    try:
+                        container_id = mountpoint.split("/k8s.io/")[1].split("/")[0][:12]
+                    except:
+                        container_id = ""
+                
+                results.append({
+                    "mountpoint": mountpoint,
+                    "upperdir": upperdir,
+                    "container_id": container_id
+                })
     except Exception:
-        return None
-
-
-def get_actual_mount_size(mountpoint: str, fstype: str = "") -> Tuple[int, str, str]:
-    """
-    실제 디스크 사용량 조회
-    - overlay: upperdir만 (각 Pod의 writable layer) ← 범인 찾기!
-    - 일반: 경로 그대로
-    """
-    if mountpoint in ("/", "/host"):
-        return -1, "N/A", "skip"
-
-    timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "60"))  # 기본 60초
+        pass
     
-    target_path = mountpoint
-    
-    # overlay면 upperdir만 조회 (핵심!)
-    if fstype == "overlay":
-        upperdir = extract_overlay_upperdir(mountpoint)
-        
-        if not upperdir:
-            # upperdir 못 찾으면 0 (공유 레이어만 있는 경우)
-            return 0, "0 B", "ok"
-        
-        # upperdir는 호스트 경로이므로 /host prefix 추가
-        target_path = "/host" + upperdir
-    else:
-        # 일반 마운트는 /host prefix 보정
-        if not os.path.exists(target_path) and os.path.exists("/host" + mountpoint):
-            target_path = "/host" + mountpoint
+    return results
 
+
+def get_upperdir_size(upperdir: str, timeout_sec: int = 60) -> Tuple[int, str, str]:
+    """
+    upperdir에 du 실행하여 실제 사용량 조회
+    
+    Returns:
+        (bytes, human, status)
+    """
+    target_path = "/host" + upperdir if not upperdir.startswith("/host") else upperdir
+    
     if not os.path.exists(target_path):
         return -1, "Not found", "error"
-
+    
     try:
         r = subprocess.run(
             ["du", "-sx", "-B1", "--", target_path],

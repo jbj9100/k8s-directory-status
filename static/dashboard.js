@@ -1,120 +1,91 @@
 let currentData = [];
 let currentSort = 'du_desc';
-let rootDiskInfo = null;
 
 async function loadMounts() {
   try {
-    // 초기 테이블 렌더링 (빈 상태)
     currentData = [];
-    renderTableWithActual();
-    updateRootSummary();
+    renderTable();
 
-    // SSE로 스트리밍 수신
-    const eventSource = new EventSource('/api/mounts/actual/stream?skip_zero=true');
+    // SSE로 스트리밍 수신 - Pod writable layer만 조회
+    const eventSource = new EventSource('/api/containers/writable/stream?skip_zero=true');
 
     eventSource.onmessage = function (event) {
       if (event.data === '[DONE]') {
         eventSource.close();
         calculateSummary();
         sortTable(currentSort);
-        console.log('Stream completed');
+        console.log('완료. 총 ' + currentData.length + ' 컨테이너');
         return;
       }
 
       try {
-        const mount = JSON.parse(event.data);
-
-        // / 경로 분리
-        if (mount.mountpoint === '/') {
-          rootDiskInfo = mount;
-          updateRootSummary();
-        } else {
-          // 즉시 추가하고 렌더링
-          currentData.push(mount);
-          renderTableWithActual();
-        }
+        const container = JSON.parse(event.data);
+        currentData.push({
+          mountpoint: container.mountpoint,
+          container_id: container.container_id,
+          upperdir: container.upperdir,
+          actual_bytes: container.actual_bytes,
+          actual_human: container.actual_human,
+          actual_status: container.actual_status,
+        });
+        renderTable();
       } catch (e) {
-        console.error('Failed to parse mount data:', e);
+        console.error('파싱 오류:', e);
       }
     };
 
     eventSource.onerror = function (err) {
-      console.error('SSE error:', err);
+      console.error('SSE 오류:', err);
       eventSource.close();
-      document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
+      document.getElementById('mounts-table').innerHTML = '<div class="loading">오류 발생</div>';
     };
 
   } catch (e) {
-    console.error('Failed to load mounts:', e);
-    document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
+    console.error('로드 실패:', e);
+    document.getElementById('mounts-table').innerHTML = '<div class="loading">오류 발생</div>';
   }
 }
 
-function updateRootSummary() {
-  if (!rootDiskInfo) return;
-
-  const summaryBox = document.getElementById('summary-box');
-  summaryBox.style.display = 'flex';
-  summaryBox.className = 'summary-box';
-  summaryBox.innerHTML = `
-    <div class="summary-item">
-      <div class="summary-label">Root (/)</div>
-      <div class="summary-value" style="font-size:18px;">${rootDiskInfo.used_h} / ${rootDiskInfo.total_h}</div>
-      <div style="font-size:11px;opacity:0.8;margin-top:4px;">${rootDiskInfo.free_h} free (${rootDiskInfo.percent}%)</div>
-    </div>
-    <div class="summary-item">
-      <div class="summary-label">Loading...</div>
-      <div class="summary-value">-</div>
-    </div>
-    <div class="summary-item">
-      <div class="summary-label">Total DU Size</div>
-      <div class="summary-value">-</div>
-    </div>
-  `;
-}
-
-function renderTableWithActual() {
+function renderTable() {
   const html = `
     <table>
       <thead>
         <tr>
-          <th onclick="sortTable('mountpoint')">Mountpoint</th>
-          <th>Device</th>
-          <th>Type</th>
-          <th>Size</th>
-          <th>Avail</th>
-          <th>Use%</th>
-          <th onclick="sortTable('du_desc')" style="background:#e8f5e9;">Actual Size ⬇</th>
+          <th>Container ID</th>
+          <th onclick="sortTable('mountpoint')" style="cursor:pointer;">Mountpoint (rootfs)</th>
+          <th onclick="sortTable('du_desc')" style="background:#ffebee;cursor:pointer;">Actual Size ⬇ (범인 찾기!)</th>
+          <th>Status</th>
         </tr>
       </thead>
       <tbody>
+        ${currentData.length === 0 ? '<tr><td colspan="4" style="text-align:center;opacity:0.6;">조회 중...</td></tr>' : ''}
         ${currentData.map(m => {
     const actualBytes = m.actual_bytes || 0;
     const actualHuman = m.actual_human || '-';
     const actualStatus = m.actual_status || 'unknown';
 
     let cellContent = actualHuman;
-    let cellStyle = '';
+    let cellStyle = 'font-weight:bold;';
+    let statusIcon = '✅';
 
     if (actualStatus === 'error') {
-      cellContent = `❌ ${actualHuman}`;
-      cellStyle = 'color:#d32f2f;font-size:10px;';
-    } else if (actualStatus === 'skip') {
-      cellContent = 'N/A';
-      cellStyle = 'opacity:0.5;';
+      cellContent = actualHuman;
+      cellStyle = 'color:#d32f2f;font-size:11px;';
+      statusIcon = '❌';
+    } else if (actualBytes > 1024 * 1024 * 1024) {
+      cellStyle = 'color:#d32f2f;font-weight:bold;font-size:14px;';
+      statusIcon = '🔥';
+    } else if (actualBytes > 100 * 1024 * 1024) {
+      cellStyle = 'color:#f57c00;font-weight:bold;';
+      statusIcon = '⚠️';
     }
 
     return `
             <tr>
-              <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
-              <td class="mono">${escapeHtml(m.device)}</td>
-              <td class="mono">${escapeHtml(m.fstype)}</td>
-              <td>${escapeHtml(m.total_h || '-')}</td>
-              <td>${escapeHtml(m.free_h || '-')}</td>
-              <td>
-                <span class="badge">${m.percent || 0}%</span>
-              </td>
-              <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
+              <td class="mono" style="font-size:11px;">${escapeHtml(m.container_id || '-')}</td>
+              <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;font-size:10px;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
+              <td class="mono du-size" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
+              <td>${statusIcon}</td>
             </tr>
           `;
   }).join('')}
@@ -125,63 +96,23 @@ function renderTableWithActual() {
   document.getElementById('mounts-table').innerHTML = html;
 }
 
-// 개별 du 조회 함수 제거 (이미 /api/mounts/actual에서 전부 받음)
-
 function calculateSummary() {
-  const duCells = document.querySelectorAll('.du-size');
   let totalBytes = 0;
-  let successCount = 0;
-  let hiddenCount = 0;
-
-  const excludeFromTotal = [
-    '/host/var/lib/containers',
-    '/host/var/lib/kubelet/pods',
-    '/host/var/lib/containerd'
-  ];
-
-  duCells.forEach(cell => {
-    const row = cell.closest('tr');
-    if (row && row.style.display === 'none') {
-      hiddenCount++;
-      return;
-    }
-
-    const bytes = parseInt(cell.getAttribute('data-bytes') || '0');
-    if (bytes > 0) {
-      successCount++;
-
-      const path = cell.getAttribute('data-path');
-      if (!excludeFromTotal.includes(path)) {
-        totalBytes += bytes;
-      }
+  currentData.forEach(m => {
+    if (m.actual_status === 'ok' && m.actual_bytes > 0) {
+      totalBytes += m.actual_bytes;
     }
   });
 
-  const visibleCount = duCells.length - hiddenCount;
-
   const summaryBox = document.getElementById('summary-box');
   summaryBox.style.display = 'flex';
-  summaryBox.className = 'summary-box';
-
-  let rootHtml = '';
-  if (rootDiskInfo) {
-    rootHtml = `
-      <div class="summary-item">
-        <div class="summary-label">Root (/)</div>
-        <div class="summary-value" style="font-size:18px;">${rootDiskInfo.used_h} / ${rootDiskInfo.total_h}</div>
-        <div style="font-size:11px;opacity:0.8;margin-top:4px;">${rootDiskInfo.free_h} free (${rootDiskInfo.percent}%)</div>
-      </div>
-    `;
-  }
-
   summaryBox.innerHTML = `
-    ${rootHtml}
     <div class="summary-item">
-      <div class="summary-label">Visible / Hidden</div>
-      <div class="summary-value">${visibleCount} / ${hiddenCount}</div>
+      <div class="summary-label">총 컨테이너</div>
+      <div class="summary-value">${currentData.length}개</div>
     </div>
     <div class="summary-item">
-      <div class="summary-label">Total DU Size</div>
+      <div class="summary-label">총 writable 사용량</div>
       <div class="summary-value">${humanBytes(totalBytes)}</div>
     </div>
   `;
@@ -190,38 +121,13 @@ function calculateSummary() {
 function sortTable(type) {
   currentSort = type;
 
-  const tbody = document.querySelector('tbody');
-  if (!tbody) return;
-
-  const rows = Array.from(tbody.querySelectorAll('tr'));
-
-  rows.sort((a, b) => {
-    if (type === 'mountpoint') {
-      const aPath = a.querySelector('td:first-child').textContent;
-      const bPath = b.querySelector('td:first-child').textContent;
-      return aPath.localeCompare(bPath);
-    } else if (type === 'du_desc') {
-      const aBytes = parseInt(a.querySelector('.du-size').getAttribute('data-bytes') || '0');
-      const bBytes = parseInt(b.querySelector('.du-size').getAttribute('data-bytes') || '0');
-      return bBytes - aBytes;
-    } else if (type === 'du_asc') {
-      const aBytes = parseInt(a.querySelector('.du-size').getAttribute('data-bytes') || '0');
-      const bBytes = parseInt(b.querySelector('.du-size').getAttribute('data-bytes') || '0');
-      return aBytes - bBytes;
-    }
-    return 0;
-  });
-
-  rows.forEach(row => tbody.appendChild(row));
-
-  document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
-  if (type === 'mountpoint') {
-    document.querySelectorAll('.sort-btn')[0]?.classList.add('active');
-  } else if (type === 'du_desc') {
-    document.querySelectorAll('.sort-btn')[1]?.classList.add('active');
-  } else if (type === 'du_asc') {
-    document.querySelectorAll('.sort-btn')[2]?.classList.add('active');
+  if (type === 'du_desc') {
+    currentData.sort((a, b) => (b.actual_bytes || 0) - (a.actual_bytes || 0));
+  } else if (type === 'mountpoint') {
+    currentData.sort((a, b) => (a.mountpoint || '').localeCompare(b.mountpoint || ''));
   }
+
+  renderTable();
 }
 
 function humanBytes(bytes) {
