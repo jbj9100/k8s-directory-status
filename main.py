@@ -18,7 +18,7 @@ async def index(request: Request):
 
 
 @app.get("/api/containers/writable/stream")
-async def api_containers_writable_stream(skip_zero: bool = True):
+async def api_containers_writable_stream(skip_zero: bool = False):
     """
     Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회 (writable layer)
     mountinfo에서 직접 overlay upperdir만 조회
