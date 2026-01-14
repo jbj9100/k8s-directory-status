@@ -72,11 +72,41 @@ function renderTable() {
     // 해당 노드의 데이터만 필터링
     const nodeItems = currentData.filter(d => d.node_name === nodeName || (!d.node_name && nodeName === 'Unknown'));
 
+    // 노드별 통계 계산
+    let nTotalBytes = 0;
+    let nNonZeroCount = 0;
+    let nOverlayCount = 0;
+    let nEmptydirCount = 0;
+
+    nodeItems.forEach(m => {
+      if (m.type === 'overlay') nOverlayCount++;
+      if (m.type === 'emptydir') nEmptydirCount++;
+      if (m.actual_status === 'ok' && m.actual_bytes > 0) {
+        nTotalBytes += m.actual_bytes;
+        nNonZeroCount++;
+      }
+    });
+    const nZeroCount = nodeItems.length - nNonZeroCount;
+
     return `
       <div class="node-section" style="margin-bottom:30px; border:1px solid #ddd; border-radius:8px; overflow:hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display:flex; flex-direction:column; max-height: 400px;">
         <div style="background:#f5f5f5; padding:12px 15px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
           <div style="font-size:16px; font-weight:bold;">📦 Node: ${escapeHtml(nodeName)}</div>
-          <div style="font-size:12px; color:#666;">${nodeItems.length} items</div>
+          
+          <div style="display:flex; gap:20px; font-size:12px; color:#444; align-items:center;">
+            <div style="display:flex; flex-direction:column; align-items:flex-end;">
+              <span style="font-size:10px; color:#888;">총 항목</span>
+              <span><strong>${nodeItems.length}</strong> <span style="font-size:10px; background:#eee; padding:2px 4px; border-radius:3px; color:#666;">O:${nOverlayCount}/E:${nEmptydirCount}</span></span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end;">
+               <span style="font-size:10px; color:#888;">사용량 있음 / 없음</span>
+               <span><strong style="color:#d32f2f;">${nNonZeroCount}</strong> <span style="font-size:10px; color:#888;">/ ${nZeroCount}</span></span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:flex-end;">
+               <span style="font-size:10px; color:#888;">총 writable 사용량</span>
+               <span style="font-size:14px; font-weight:bold; color:#1976d2;">${humanBytes(nTotalBytes)}</span>
+            </div>
+          </div>
         </div>
         <div style="overflow-y:auto; flex-grow:1;">
           <table style="width:100%; border-collapse:collapse; margin:0;">
