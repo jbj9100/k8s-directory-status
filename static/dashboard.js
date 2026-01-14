@@ -6,7 +6,7 @@ async function loadMounts() {
     currentData = [];
     renderTable();
 
-    // SSE로 스트리밍 수신 - Pod writable layer만 조회 (0인 것도 포함)
+    // SSE로 스트리밍 수신 - overlay + emptyDir 모두 조회
     const eventSource = new EventSource('/api/containers/writable/stream?skip_zero=false');
 
     eventSource.onmessage = function (event) {
@@ -14,20 +14,13 @@ async function loadMounts() {
         eventSource.close();
         calculateSummary();
         sortTable(currentSort);
-        console.log('완료. 총 ' + currentData.length + ' 컨테이너');
+        console.log('완료. 총 ' + currentData.length + ' 항목');
         return;
       }
 
       try {
-        const container = JSON.parse(event.data);
-        currentData.push({
-          mountpoint: container.mountpoint,
-          container_id: container.container_id,
-          upperdir: container.upperdir,
-          actual_bytes: container.actual_bytes,
-          actual_human: container.actual_human,
-          actual_status: container.actual_status,
-        });
+        const item = JSON.parse(event.data);
+        currentData.push(item);
         renderTable();
       } catch (e) {
         console.error('파싱 오류:', e);
@@ -51,8 +44,8 @@ function renderTable() {
     <table>
       <thead>
         <tr>
-          <th>Container ID</th>
-          <th onclick="sortTable('mountpoint')" style="cursor:pointer;">Mountpoint (rootfs)</th>
+          <th>Type</th>
+          <th>Pod / Container</th>
           <th onclick="sortTable('du_desc')" style="background:#ffebee;cursor:pointer;">Actual Size ⬇ (범인 찾기!)</th>
           <th>Status</th>
         </tr>
@@ -63,6 +56,7 @@ function renderTable() {
     const actualBytes = m.actual_bytes || 0;
     const actualHuman = m.actual_human || '-';
     const actualStatus = m.actual_status || 'unknown';
+    const itemType = m.type || '';
 
     let cellContent = actualHuman;
     let cellStyle = 'font-weight:bold;';
@@ -80,10 +74,35 @@ function renderTable() {
       statusIcon = '⚠️';
     }
 
+    // Type 라벨
+    let typeLabel = '';
+    let typeStyle = 'font-size:10px;padding:2px 6px;border-radius:3px;';
+    if (itemType === 'overlay') {
+      typeLabel = 'overlay';
+      typeStyle += 'background:#e3f2fd;color:#1976d2;';
+    } else if (itemType === 'emptydir') {
+      typeLabel = 'emptyDir';
+      typeStyle += 'background:#fff3e0;color:#f57c00;';
+    }
+
+    // Pod/Container 이름
+    let nameDisplay = '';
+    if (m.pod) {
+      nameDisplay = `<div style="font-weight:bold;">${escapeHtml(m.pod)}</div>`;
+      if (m.container_name) {
+        nameDisplay += `<div style="font-size:10px;opacity:0.7;">${escapeHtml(m.container_name)}</div>`;
+      }
+    } else if (m.volume_name) {
+      nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name)}</div>`;
+      nameDisplay += `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.pod_uid ? m.pod_uid.substring(0, 8) : '')}</div>`;
+    } else {
+      nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || '-')}</div>`;
+    }
+
     return `
             <tr>
-              <td class="mono" style="font-size:11px;">${escapeHtml(m.container_id || '-')}</td>
-              <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;font-size:10px;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
+              <td><span style="${typeStyle}">${typeLabel}</span></td>
+              <td>${nameDisplay}</td>
               <td class="mono du-size" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
               <td>${statusIcon}</td>
             </tr>
@@ -99,8 +118,13 @@ function renderTable() {
 function calculateSummary() {
   let totalBytes = 0;
   let nonZeroCount = 0;
+  let overlayCount = 0;
+  let emptydirCount = 0;
 
   currentData.forEach(m => {
+    if (m.type === 'overlay') overlayCount++;
+    if (m.type === 'emptydir') emptydirCount++;
+
     if (m.actual_status === 'ok' && m.actual_bytes > 0) {
       totalBytes += m.actual_bytes;
       nonZeroCount++;
@@ -113,11 +137,12 @@ function calculateSummary() {
   summaryBox.style.display = 'flex';
   summaryBox.innerHTML = `
     <div class="summary-item">
-      <div class="summary-label">총 컨테이너</div>
+      <div class="summary-label">총 항목</div>
       <div class="summary-value">${currentData.length}개</div>
+      <div style="font-size:10px;opacity:0.7;">overlay: ${overlayCount} / emptyDir: ${emptydirCount}</div>
     </div>
     <div class="summary-item">
-      <div class="summary-label">writable 있음 / 없음</div>
+      <div class="summary-label">사용량 있음 / 없음</div>
       <div class="summary-value" style="color:#d32f2f;">${nonZeroCount}개</div>
       <div style="font-size:11px;opacity:0.7;">/ ${zeroCount}개</div>
     </div>

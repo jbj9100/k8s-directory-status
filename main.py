@@ -20,42 +20,52 @@ async def index(request: Request):
 @app.get("/api/containers/writable/stream")
 async def api_containers_writable_stream(skip_zero: bool = False):
     """
-    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회 (writable layer)
-    mountinfo에서 직접 overlay upperdir만 조회
+    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회
+    - overlay upperdir: 컨테이너 writable layer
+    - emptyDir: /var/lib/kubelet/pods/.../volumes/kubernetes.io~empty-dir/
     완료되는 순서대로 SSE 스트리밍
     """
     import json
     from fastapi.responses import StreamingResponse
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from overlay_utils import get_overlay_upperdirs, get_upperdir_size
+    from overlay_utils import get_all_writable_paths, get_upperdir_size
     
     def generate():
-        upperdirs = get_overlay_upperdirs()
+        items = get_all_writable_paths()
         max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
         timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "60"))
 
         def work(item: dict):
-            b, h, st = get_upperdir_size(item["upperdir"], timeout_sec)
+            b, h, st = get_upperdir_size(item["path"], timeout_sec)
             return item, b, h, st
 
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futs = [ex.submit(work, item) for item in upperdirs]
+            futs = [ex.submit(work, item) for item in items]
             
             for fut in as_completed(futs):
                 item, b, h, st = fut.result()
                 
-                # 0 바이트는 스킵
+                # 0 바이트는 스킵 (옵션)
                 if skip_zero and st == "ok" and b == 0:
                     continue
                 
                 result = {
-                    "container_id": item["container_id"],
-                    "mountpoint": item["mountpoint"],
-                    "upperdir": item["upperdir"],
+                    "type": item.get("type", ""),
+                    "container_id": item.get("container_id", ""),
+                    "container_name": item.get("container_name", ""),
+                    "pod": item.get("pod", ""),
+                    "namespace": item.get("namespace", ""),
+                    "path": item.get("path", ""),
+                    "mountpoint": item.get("mountpoint", ""),
                     "actual_bytes": b,
                     "actual_human": h,
                     "actual_status": st,
                 }
+                
+                # emptyDir인 경우 추가 정보
+                if item.get("type") == "emptydir":
+                    result["volume_name"] = item.get("volume_name", "")
+                    result["pod_uid"] = item.get("pod_uid", "")
                 
                 yield f"data: {json.dumps(result)}\n\n"
         
@@ -72,25 +82,26 @@ async def api_containers_writable_stream(skip_zero: bool = False):
 
 
 @app.get("/api/containers/writable")
-async def api_containers_writable(skip_zero: bool = True):
+async def api_containers_writable(skip_zero: bool = False):
     """
-    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회 (writable layer)
-    mountinfo에서 직접 overlay upperdir만 조회
+    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회 (JSON)
+    - overlay upperdir: 컨테이너 writable layer
+    - emptyDir: /var/lib/kubelet/pods/.../volumes/kubernetes.io~empty-dir/
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from overlay_utils import get_overlay_upperdirs, get_upperdir_size
+    from overlay_utils import get_all_writable_paths, get_upperdir_size
     
-    upperdirs = get_overlay_upperdirs()
+    items = get_all_writable_paths()
     max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
     timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "60"))
 
     def work(item: dict):
-        b, h, st = get_upperdir_size(item["upperdir"], timeout_sec)
+        b, h, st = get_upperdir_size(item["path"], timeout_sec)
         return item, b, h, st
 
     out = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = [ex.submit(work, item) for item in upperdirs]
+        futs = [ex.submit(work, item) for item in items]
         
         for fut in as_completed(futs):
             item, b, h, st = fut.result()
@@ -98,14 +109,24 @@ async def api_containers_writable(skip_zero: bool = True):
             if skip_zero and st == "ok" and b == 0:
                 continue
             
-            out.append({
-                "container_id": item["container_id"],
-                "mountpoint": item["mountpoint"],
-                "upperdir": item["upperdir"],
+            result = {
+                "type": item.get("type", ""),
+                "container_id": item.get("container_id", ""),
+                "container_name": item.get("container_name", ""),
+                "pod": item.get("pod", ""),
+                "namespace": item.get("namespace", ""),
+                "path": item.get("path", ""),
+                "mountpoint": item.get("mountpoint", ""),
                 "actual_bytes": b,
                 "actual_human": h,
                 "actual_status": st
-            })
+            }
+            
+            if item.get("type") == "emptydir":
+                result["volume_name"] = item.get("volume_name", "")
+                result["pod_uid"] = item.get("pod_uid", "")
+            
+            out.append(result)
     
     # 용량 큰 순으로 정렬
     out.sort(key=lambda x: x.get("actual_bytes", 0), reverse=True)
