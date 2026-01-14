@@ -73,24 +73,26 @@ function renderTable() {
     const nodeItems = currentData.filter(d => d.node_name === nodeName || (!d.node_name && nodeName === 'Unknown'));
 
     return `
-      <div class="node-section" style="margin-bottom:30px; border:1px solid #ddd; border-radius:8px; overflow:hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-        <div style="background:#f5f5f5; padding:12px 15px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center;">
+      <div class="node-section" style="margin-bottom:30px; border:1px solid #ddd; border-radius:8px; overflow:hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05); display:flex; flex-direction:column; max-height: 400px;">
+        <div style="background:#f5f5f5; padding:12px 15px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
           <div style="font-size:16px; font-weight:bold;">📦 Node: ${escapeHtml(nodeName)}</div>
           <div style="font-size:12px; color:#666;">${nodeItems.length} items</div>
         </div>
-        <table style="width:100%; border-collapse:collapse; margin:0;">
-          <thead>
-            <tr style="background:#fff;">
-              <th style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:80px;">Type</th>
-              <th style="padding:10px; text-align:left; border-bottom:2px solid #eee;">Pod / Container</th>
-              <th onclick="sortTable('du_desc')" style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:120px; cursor:pointer; background:#fff8e1;">Actual Size ⬇</th>
-              <th style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:60px;">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${renderNodeRows(nodeItems)}
-          </tbody>
-        </table>
+        <div style="overflow-y:auto; flex-grow:1;">
+          <table style="width:100%; border-collapse:collapse; margin:0;">
+            <thead style="position:sticky; top:0; background:#fff; z-index:1;">
+              <tr style="background:#fff;">
+                <th style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:80px;">Type</th>
+                <th style="padding:10px; text-align:left; border-bottom:2px solid #eee;">Pod / Container</th>
+                <th onclick="sortTable('du_desc')" style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:120px; cursor:pointer; background:#fff8e1;">Actual Size ⬇</th>
+                <th style="padding:10px; text-align:left; border-bottom:2px solid #eee; width:60px;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${renderNodeRows(nodeItems)}
+            </tbody>
+          </table>
+        </div>
       </div>
     `;
   }).join('');
