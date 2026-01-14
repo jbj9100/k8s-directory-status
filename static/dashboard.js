@@ -1,19 +1,24 @@
 async function loadAll() {
-    await Promise.all([
-        loadSystemStats(),
-        loadPathsSummary(),
-        loadMounts()
-    ]);
+  // 실시간 갱신: CPU, 메모리, I/O만
+  await Promise.all([
+    loadSystemStats(),
+    loadMounts()
+  ]);
+}
+
+async function loadPathsSummaryManual() {
+  // 수동 로드만 가능 (느린 작업)
+  await loadPathsSummary();
 }
 
 async function loadSystemStats() {
-    try {
-        const r = await fetch('/api/system/stats');
-        const data = await r.json();
+  try {
+    const r = await fetch('/api/system/stats');
+    const data = await r.json();
 
-        if (!r.ok) throw new Error('Failed to load system stats');
+    if (!r.ok) throw new Error('Failed to load system stats');
 
-        const html = `
+    const html = `
       <div class="metric" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
         <div class="metric-label">CPU Usage</div>
         <div class="metric-value">${data.cpu.percent.toFixed(1)}%</div>
@@ -36,11 +41,11 @@ async function loadSystemStats() {
       </div>
     `;
 
-        document.getElementById('system-metrics').innerHTML = html;
+    document.getElementById('system-metrics').innerHTML = html;
 
-        // Top 프로세스 렌더링
-        if (data.top_processes && data.top_processes.length > 0) {
-            const processHtml = `
+    // Top 프로세스 렌더링
+    if (data.top_processes && data.top_processes.length > 0) {
+      const processHtml = `
         <table>
           <thead>
             <tr>
@@ -62,47 +67,47 @@ async function loadSystemStats() {
           </tbody>
         </table>
       `;
-            document.getElementById('top-processes').innerHTML = processHtml;
-        }
-    } catch (e) {
-        console.error('Failed to load system stats:', e);
-        document.getElementById('system-metrics').innerHTML = '<div class="loading">Error loading system stats</div>';
+      document.getElementById('top-processes').innerHTML = processHtml;
     }
+  } catch (e) {
+    console.error('Failed to load system stats:', e);
+    document.getElementById('system-metrics').innerHTML = '<div class="loading">Error loading system stats</div>';
+  }
 }
 
 async function loadPathsSummary() {
-    try {
-        const r = await fetch('/api/paths/summary');
-        const data = await r.json();
+  try {
+    const r = await fetch('/api/paths/summary');
+    const data = await r.json();
 
-        if (!r.ok) throw new Error('Failed to load paths');
+    if (!r.ok) throw new Error('Failed to load paths');
 
-        const html = data.paths.map(p => {
-            const shortPath = p.path.replace('/host', '');
-            const status = p.status === 'ok' ? '' : ' (Error)';
-            return `
+    const html = data.paths.map(p => {
+      const shortPath = p.path.replace('/host', '');
+      const status = p.status === 'ok' ? '' : ' (Error)';
+      return `
         <div class="path-item">
           <div class="path-name">${escapeHtml(shortPath)}</div>
           <div class="path-size">${escapeHtml(p.total_human)}${status}</div>
         </div>
       `;
-        }).join('');
+    }).join('');
 
-        document.getElementById('paths-grid').innerHTML = html;
-    } catch (e) {
-        console.error('Failed to load paths:', e);
-        document.getElementById('paths-grid').innerHTML = '<div class="loading">Error loading paths</div>';
-    }
+    document.getElementById('paths-grid').innerHTML = html;
+  } catch (e) {
+    console.error('Failed to load paths:', e);
+    document.getElementById('paths-grid').innerHTML = '<div class="loading">Error loading paths</div>';
+  }
 }
 
 async function loadMounts() {
-    try {
-        const r = await fetch('/api/mounts');
-        const data = await r.json();
+  try {
+    const r = await fetch('/api/mounts');
+    const data = await r.json();
 
-        if (!r.ok) throw new Error('Failed to load mounts');
+    if (!r.ok) throw new Error('Failed to load mounts');
 
-        const html = `
+    const html = `
       <table>
         <thead>
           <tr>
@@ -129,18 +134,18 @@ async function loadMounts() {
       </table>
     `;
 
-        document.getElementById('mounts-table').innerHTML = html;
-    } catch (e) {
-        console.error('Failed to load mounts:', e);
-        document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
-    }
+    document.getElementById('mounts-table').innerHTML = html;
+  } catch (e) {
+    console.error('Failed to load mounts:', e);
+    document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
+  }
 }
 
 function escapeHtml(s) {
-    return String(s)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }

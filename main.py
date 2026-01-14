@@ -132,14 +132,14 @@ async def api_system_stats():
 
 @app.get("/api/paths/summary")
 async def api_paths_summary():
-    """주요 경로별 디스크 사용량 병렬 조회"""
+    """주요 경로별 디스크 사용량 병렬 조회 (du -s -x 사용)"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from du_runner import list_children_sizes
+    import subprocess
     
     # 조회할 주요 경로
     paths = [
         "/host/var/lib/containerd",
-        "/host/var/lib/containers",
+        "/host/var/lib/containers", 
         "/host/var/lib/kubelet/pods",
         "/host/var/log/pods",
         "/host/var/log/containers"
@@ -147,17 +147,45 @@ async def api_paths_summary():
     
     results = []
     
-    def get_path_size(path):
+    def get_path_size_fast(path):
+        """du -s -x로 빠르고 정확한 용량 조회"""
         try:
-            data = list_children_sizes(
-                path=path, depth=0, cache=cache,
-                timeout_sec=10, one_fs=DU_ONE_FS, allowed_roots=ALLOWED_ROOTS
+            # -s: 요약 (총합만), -x: 마운트 경계 넘지 않음, -B1: 바이트 단위
+            result = subprocess.run(
+                ["du", "-s", "-x", "-B1", "--", path],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False
             )
+            
+            if result.returncode in (0, 1):
+                line = result.stdout.strip()
+                if line:
+                    size_bytes = int(line.split()[0])
+                    return {
+                        "path": path,
+                        "total_bytes": size_bytes,
+                        "total_human": human_bytes(size_bytes),
+                        "status": "ok"
+                    }
+            
+            # 실패 시
             return {
                 "path": path,
-                "total_bytes": data.get("total_bytes", 0),
-                "total_human": data.get("total_human", "0 B"),
-                "status": "ok"
+                "total_bytes": 0,
+                "total_human": "Error",
+                "status": "error",
+                "error": result.stderr.strip() if result.stderr else "du failed"
+            }
+            
+        except subprocess.TimeoutExpired:
+            return {
+                "path": path,
+                "total_bytes": 0,
+                "total_human": "Timeout",
+                "status": "error",
+                "error": "Timeout after 10s"
             }
         except Exception as e:
             return {
@@ -170,7 +198,7 @@ async def api_paths_summary():
     
     # 병렬로 모든 경로 조회
     with ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_path = {executor.submit(get_path_size, p): p for p in paths}
+        future_to_path = {executor.submit(get_path_size_fast, p): p for p in paths}
         for future in as_completed(future_to_path):
             results.append(future.result())
     

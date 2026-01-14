@@ -188,9 +188,12 @@
 
     <!-- 주요 경로 디스크 사용량 -->
     <div class="card">
-      <h2>💾 Key Paths Disk Usage</h2>
+      <div class="header" style="margin-bottom: 16px;">
+        <h2>💾 Key Paths Disk Usage</h2>
+        <button class="refresh-btn" onclick="loadPathsSummaryManual()">🔍 Load Disk Usage</button>
+      </div>
       <div class="paths-grid" id="paths-grid">
-        <div class="loading">Loading...</div>
+        <div class="loading">Click "Load Disk Usage" button</div>
       </div>
     </div>
 
@@ -214,7 +217,7 @@
   <script src="/static/dashboard.js"></script>
   <script>
     loadAll();
-    // 3초마다 자동 새로고침
+    // 3초마다 자동 새로고침 (시스템 상태만)
     setInterval(loadAll, 3000);
   </script>
 </body>
