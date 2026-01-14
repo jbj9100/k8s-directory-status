@@ -40,7 +40,16 @@ async function loadMounts() {
 }
 
 function renderTable() {
+  const podUidCmd = 'kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "<Pod UID>"';
+
   const html = `
+    <div style="margin-bottom:10px;padding:8px;background:#fff3e0;border-radius:4px;font-size:11px;">
+      <strong>💡 emptyDir의 Pod UID로 Pod 찾기:</strong>
+      <code onclick="navigator.clipboard.writeText('${podUidCmd}'); alert('복사됨!');" 
+            style="cursor:pointer;background:#fff;padding:4px 8px;border-radius:3px;display:block;margin-top:4px;word-break:break-all;">
+        ${escapeHtml(podUidCmd)}
+      </code>
+    </div>
     <table>
       <thead>
         <tr>
@@ -97,20 +106,10 @@ function renderTable() {
       }
       nameDisplay += `<div style="font-size:9px;opacity:0.5;">Container ID: ${escapeHtml(m.container_id || '-')}</div>`;
     } else if (itemType === 'emptydir') {
-      // emptyDir: 볼륨 이름 + Pod UID + 찾기 명령어
+      // emptyDir: 볼륨 이름 + Pod UID만 표시 (명령어는 상단에 한번만)
       const podUid = m.pod_uid || '-';
-      const searchCmd = `kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "${podUid}"`;
-
       nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name || '-')}</div>`;
       nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(podUid)}</div>`;
-      nameDisplay += `<div style="font-size:8px;margin-top:4px;">
-        <span style="opacity:0.6;">찾기 명령어:</span>
-        <code onclick="navigator.clipboard.writeText(this.getAttribute('data-cmd')); alert('복사됨!')" 
-              data-cmd="${escapeHtml(searchCmd)}" 
-              style="cursor:pointer;background:#f5f5f5;padding:2px 4px;border-radius:2px;font-size:8px;display:block;margin-top:2px;word-break:break-all;">
-          kubectl get pods -A ... | grep "${escapeHtml(podUid.substring(0, 8))}..."
-        </code>
-      </div>`;
     } else {
       nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || m.pod_uid || '-')}</div>`;
     }
