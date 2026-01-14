@@ -1,5 +1,6 @@
 let currentData = [];
 let currentSort = 'du_desc';
+let rootDiskInfo = null;
 
 async function loadMounts() {
   try {
@@ -8,15 +9,41 @@ async function loadMounts() {
 
     if (!r.ok) throw new Error('Failed to load mounts');
 
-    currentData = data;
-    renderTable();
+    // / 경로 분리
+    rootDiskInfo = data.find(m => m.mountpoint === '/');
+    currentData = data.filter(m => m.mountpoint !== '/');
 
-    // 비동기로 각 마운트의 DU 크기 조회
-    loadAllMountDuSizes();
+    renderTable();
+    updateRootSummary();
+    calculateSummary();
+    sortTable(currentSort);
   } catch (e) {
     console.error('Failed to load mounts:', e);
     document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
   }
+}
+
+function updateRootSummary() {
+  if (!rootDiskInfo) return;
+
+  const summaryBox = document.getElementById('summary-box');
+  summaryBox.style.display = 'flex';
+  summaryBox.className = 'summary-box';
+  summaryBox.innerHTML = `
+    <div class="summary-item">
+      <div class="summary-label">Root (/)</div>
+      <div class="summary-value" style="font-size:18px;">${rootDiskInfo.used_h} / ${rootDiskInfo.total_h}</div>
+      <div style="font-size:11px;opacity:0.8;margin-top:4px;">${rootDiskInfo.free_h} free (${rootDiskInfo.percent}%)</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">-</div>
+      <div class="summary-value">-</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">Total DU Size</div>
+      <div class="summary-value">-</div>
+    </div>
+  `;
 }
 
 function renderTable() {
@@ -34,7 +61,17 @@ function renderTable() {
         </tr>
       </thead>
       <tbody>
-        ${currentData.map(m => `
+        ${currentData.map(m => {
+    const duBytes = m.du_bytes || 0;
+    const duHuman = m.du_human || '-';
+
+    // 에러 스타일
+    let duStyle = '';
+    if (duHuman.includes('Error') || duHuman.includes('Not loaded')) {
+      duStyle = 'color:#d32f2f;font-size:10px;';
+    }
+
+    return `
           <tr>
             <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
             <td class="mono">${escapeHtml(m.device)}</td>
@@ -44,9 +81,10 @@ function renderTable() {
             <td>
               <span class="badge">${m.percent}%</span>
             </td>
-            <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="0">⏳ Loading...</td>
+            <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="${duBytes}" style="${duStyle}">${escapeHtml(duHuman)}</td>
           </tr>
-        `).join('')}
+          `;
+  }).join('')}
       </tbody>
     </table>
   `;
@@ -54,140 +92,49 @@ function renderTable() {
   document.getElementById('mounts-table').innerHTML = html;
 }
 
-async function loadAllMountDuSizes() {
-  const duCells = document.querySelectorAll('.du-size');
-  const allCells = Array.from(duCells);
-
-  // 초기에는 상위 100개만 조회
-  const initialLimit = 100;
-  const cellsToLoad = allCells.slice(0, initialLimit);
-
-  // 배치 크기 증가 (5 → 20)
-  const batchSize = 20;
-  let loaded = 0;
-
-  for (let i = 0; i < cellsToLoad.length; i += batchSize) {
-    const batch = cellsToLoad.slice(i, i + batchSize);
-    const promises = batch.map(cell => {
-      const path = cell.getAttribute('data-path');
-      return loadSingleDuSize(cell, path);
-    });
-    await Promise.all(promises);
-
-    loaded += batch.length;
-    console.log(`Loaded ${loaded}/${cellsToLoad.length} mounts`);
-  }
-
-  // 나머지 경로는 "-"로 표시
-  if (allCells.length > initialLimit) {
-    for (let i = initialLimit; i < allCells.length; i++) {
-      allCells[i].textContent = '(Not loaded)';
-      allCells[i].style.color = '#999';
-      allCells[i].style.fontSize = '10px';
-    }
-  }
-
-  // 모든 로딩 완료 후 합산 계산 및 자동 정렬
-  calculateSummary();
-  sortTable(currentSort);
-}
-
-async function loadSingleDuSize(cell, path) {
-  // "/" 경로는 너무 느려서 스킵
-  if (path === '/') {
-    cell.textContent = '-';
-    cell.setAttribute('data-bytes', '0');
-    cell.style.color = '#999';
-    return;
-  }
-
-  try {
-    const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=0`);
-    const j = await r.json();
-
-    if (r.ok && j.total_human) {
-      const bytes = j.total_bytes || 0;
-
-      // 0B이면 행 숨기기
-      if (bytes === 0) {
-        const row = cell.closest('tr');
-        if (row) {
-          row.style.display = 'none';
-        }
-        return;
-      }
-
-      cell.textContent = j.total_human;
-      cell.setAttribute('data-bytes', bytes);
-    } else {
-      // 에러 상세 표시
-      cell.textContent = `❌ ${j.detail || r.status}`;
-      cell.setAttribute('data-bytes', '0');
-      cell.style.color = '#d32f2f';
-      cell.style.fontSize = '10px';
-    }
-  } catch (e) {
-    cell.textContent = `⚠️ ${e.message}`;
-    cell.setAttribute('data-bytes', '0');
-    cell.style.color = '#d32f2f';
-    cell.style.fontSize = '10px';
-  }
-  calculateSummary(); // Update summary after each DU size is loaded
-}
-
 function calculateSummary() {
   const duCells = document.querySelectorAll('.du-size');
   let totalBytes = 0;
   let successCount = 0;
-  let pendingCount = 0;
-  let hiddenCount = 0;
 
-  // 총합에서 제외할 상위 디렉터리 (중복 방지)
   const excludeFromTotal = [
-    '/',
     '/host/var/lib/containers',
     '/host/var/lib/kubelet/pods',
     '/host/var/lib/containerd'
   ];
 
   duCells.forEach(cell => {
-    const row = cell.closest('tr');
-    // 숨겨진 행은 건너뛰기
-    if (row && row.style.display === 'none') {
-      hiddenCount++;
-      return;
-    }
+    const bytes = parseInt(cell.getAttribute('data-bytes') || '0');
+    if (bytes > 0) {
+      successCount++;
 
-    const text = cell.textContent;
-    if (text.includes('⏳') || text.includes('Loading')) {
-      pendingCount++;
-    } else {
-      const bytes = parseInt(cell.getAttribute('data-bytes') || '0');
-      if (bytes > 0) {
-        successCount++;
-
-        // 상위 디렉터리는 총합에서 제외
-        const path = cell.getAttribute('data-path');
-        if (!excludeFromTotal.includes(path)) {
-          totalBytes += bytes;
-        }
+      const path = cell.getAttribute('data-path');
+      if (!excludeFromTotal.includes(path)) {
+        totalBytes += bytes;
       }
     }
   });
 
-  const visibleCount = duCells.length - hiddenCount;
-
   const summaryBox = document.getElementById('summary-box');
   summaryBox.style.display = 'flex';
   summaryBox.className = 'summary-box';
+
+  let rootHtml = '';
+  if (rootDiskInfo) {
+    rootHtml = `
+      <div class="summary-item">
+        <div class="summary-label">Root (/)</div>
+        <div class="summary-value" style="font-size:18px;">${rootDiskInfo.used_h} / ${rootDiskInfo.total_h}</div>
+        <div style="font-size:11px;opacity:0.8;margin-top:4px;">${rootDiskInfo.free_h} free (${rootDiskInfo.percent}%)</div>
+      </div>
+    `;
+  }
+
   summaryBox.innerHTML = `
+    ${rootHtml}
     <div class="summary-item">
-      <div class="summary-label">Visible / Hidden</div>
-      <div class="summary-value">${visibleCount} / ${hiddenCount}</div>
-    </div>
-    <div class="summary-item">
-      <div class="summary-label">Loaded / Pending</div>
-      <div class="summary-value">${successCount} / ${pendingCount}</div>
+      <div class="summary-label">Total Mounts</div>
+      <div class="summary-value">${duCells.length}</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">Total DU Size</div>
@@ -221,10 +168,8 @@ function sortTable(type) {
     return 0;
   });
 
-  // Re-append sorted rows
   rows.forEach(row => tbody.appendChild(row));
 
-  // Update button states
   document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
   if (type === 'mountpoint') {
     document.querySelectorAll('.sort-btn')[0].classList.add('active');

@@ -49,8 +49,55 @@ async def index(request: Request):
 
 @app.get("/api/mounts")
 async def api_mounts():
-    """필터링된 마운트 포인트 반환 (df + awk)"""
-    return JSONResponse(get_mounts())
+    """마운트 포인트 목록 + DU 크기 조회 (0B 제외)"""
+    from mounts import get_mounts
+    from overlay_utils import get_actual_mount_size
+    from concurrent.futures import ThreadPoolExecutor
+    
+    mounts = get_mounts()
+    
+    # 병렬로 DU 크기 조회 (최대 상위 100개만)
+    max_mounts = 100
+    mounts_to_check = mounts[:max_mounts]
+    
+    def get_du_size(mount):
+        """DU 크기 조회 (동기 함수)"""
+        try:
+            mountpoint = mount.get('mountpoint')
+            fstype = mount.get('fstype')
+            
+            # / 경로는 df 정보만 (du 스킵)
+            if mountpoint == '/':
+                mount['du_bytes'] = -1
+                mount['du_human'] = '-'
+                return mount
+            
+            size_bytes, size_human = get_actual_mount_size(mountpoint, fstype)
+            mount['du_bytes'] = size_bytes if size_bytes >= 0 else 0
+            mount['du_human'] = size_human if size_bytes >= 0 else 'Error'
+            
+        except Exception as e:
+            print(f"Error getting DU for {mount.get('mountpoint')}: {e}")
+            mount['du_bytes'] = -1
+            mount['du_human'] = f'Error: {str(e)[:30]}'
+        
+        return mount
+    
+    # ThreadPoolExecutor로 병렬 처리
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(get_du_size, m) for m in mounts_to_check]
+        for future in futures:
+            future.result()  # 완료 대기
+    
+    # 나머지는 du 정보 없이
+    for i in range(max_mounts, len(mounts)):
+        mounts[i]['du_bytes'] = -1
+        mounts[i]['du_human'] = 'Not loaded'
+    
+    # 0B인 것 제외 (/ 제외, du_bytes가 0인 것만)
+    filtered = [m for m in mounts if m.get('mountpoint') == '/' or m.get('du_bytes', 0) != 0]
+    
+    return JSONResponse(filtered)
 
 @app.get("/api/du")
 async def api_du(path: str = Query("/", description="absolute path"), depth: int = Query(1, ge=0, le=5)):
