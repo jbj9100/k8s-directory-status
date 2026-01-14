@@ -57,21 +57,30 @@ def get_actual_mount_size(mountpoint: str, fstype: str) -> tuple[int, str]:
     
     # overlay 마운트는 upperdir 추출
     if fstype == 'overlay':
-        upperdir = extract_overlay_upperdir(mountpoint)
+        # mountpoint가 /host로 시작하면 호스트 경로로 변환
+        host_mountpoint = mountpoint
+        if mountpoint.startswith('/host/'):
+            # /host/run/containerd/... → /run/containerd/...
+            host_mountpoint = mountpoint[5:]
+        
+        upperdir = extract_overlay_upperdir(host_mountpoint)
         if upperdir:
-            # 컨테이너에서 접근 가능하도록 /host prefix
+            # upperdir는 호스트 절대 경로 → /host prefix 추가
             target_path = f'/host{upperdir}'
-            print(f"Overlay mount {mountpoint} -> upperdir {target_path}")
+            print(f"Overlay {mountpoint} -> upperdir {target_path}")
         else:
-            print(f"Failed to extract upperdir for {mountpoint}, using mountpoint")
+            print(f"No upperdir for {mountpoint}, using mountpoint")
     
-    # du 실행
+    # du 실행 (timeout은 환경변수에서)
+    import os
+    timeout_sec = int(os.getenv('DU_TIMEOUT_SEC', '15'))
+    
     try:
         result = subprocess.run(
             ["du", "-sx", "-B1", "--", target_path],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=timeout_sec,
             check=False
         )
         
@@ -83,7 +92,7 @@ def get_actual_mount_size(mountpoint: str, fstype: str) -> tuple[int, str]:
         
         return 0, "0 B"
     except subprocess.TimeoutExpired:
-        return -1, "Timeout"
+        return -1, f"Timeout ({timeout_sec}s)"
     except Exception as e:
         return -1, f"Error: {e}"
 

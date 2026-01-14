@@ -32,9 +32,9 @@ spec:
           protocol: TCP
         env:
         - name: DU_TIMEOUT_SEC
-          value: "15"
+          value: "60"
         - name: DU_CACHE_TTL_SEC
-          value: "30"
+          value: "60"
         - name: DU_ONE_FS
           value: "1"
         - name: ALLOWED_ROOTS
