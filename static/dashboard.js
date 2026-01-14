@@ -149,46 +149,18 @@ async function loadMounts() {
 async function loadAllMountDuSizes() {
   const duCells = document.querySelectorAll('.du-size');
 
-  // 중요한 마운트 포인트만 선별 (overlayfs, tmpfs 제외)
-  const importantCells = Array.from(duCells).filter(cell => {
-    const path = cell.getAttribute('data-path');
-    // overlayfs, tmpfs 제외하고 주요 경로만
-    if (path.includes('/run/containerd/io.containerd')) return false;
-    if (path.includes('/var/lib/containers/storage/overlay')) return false;
-    if (path.includes('/var/lib/kubelet/pods/') && path.includes('/volumes/')) return false;
-
-    // 주요 경로만 조회
-    const important = [
-      '/',
-      '/dev',
-      '/dev/shm',
-      '/host/var/lib/containerd',
-      '/host/var/lib/containers',
-      '/host/var/lib/kubelet/pods',
-      '/host/var/log/pods',
-      '/host/var/log/containers'
-    ];
-
-    return important.includes(path) || path.startsWith('/host/');
-  });
-
-  // 병렬로 중요한 경로만 조회 (최대 10개 동시)
+  // 백엔드에서 이미 필터링된 마운트 포인트만 오므로 모두 조회
   const batchSize = 10;
-  for (let i = 0; i < importantCells.length; i += batchSize) {
-    const batch = importantCells.slice(i, i + batchSize);
+  const allCells = Array.from(duCells);
+
+  for (let i = 0; i < allCells.length; i += batchSize) {
+    const batch = allCells.slice(i, i + batchSize);
     const promises = batch.map(cell => {
       const path = cell.getAttribute('data-path');
       return loadSingleDuSize(cell, path);
     });
     await Promise.all(promises);
   }
-
-  // 나머지는 "-"로 표시
-  duCells.forEach(cell => {
-    if (!importantCells.includes(cell) && cell.textContent === '⏳') {
-      cell.textContent = '-';
-    }
-  });
 }
 
 async function loadSingleDuSize(cell, path) {

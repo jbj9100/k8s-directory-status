@@ -49,7 +49,21 @@ async def index(request: Request):
 
 @app.get("/api/mounts")
 async def api_mounts():
-    return JSONResponse(get_mounts())
+    """필터링된 마운트 포인트만 반환"""
+    all_mounts = get_mounts()
+    
+    # 필요한 경로만 필터링
+    filtered = []
+    for m in all_mounts:
+        path = m.get('mountpoint', '')
+        # /, /var/lib/containers*, /var/lib/kubelet/pods*, /var/lib/containerd*만
+        if (path == '/' or 
+            path.startswith('/var/lib/containers') or
+            path.startswith('/var/lib/kubelet/pods') or
+            path.startswith('/var/lib/containerd')):
+            filtered.append(m)
+    
+    return JSONResponse(filtered)
 
 @app.get("/api/du")
 async def api_du(path: str = Query("/", description="absolute path"), depth: int = Query(1, ge=0, le=5)):
@@ -63,13 +77,13 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
                 if not any(is_within(r, path) for r in ALLOWED_ROOTS):
                     raise HTTPException(status_code=403, detail="path is outside allowed roots")
             
-            # du -s -x로 빠르게 조회 (타임아웃 5초)
+            # du -s -x로 빠르게 조회 (타임아웃 3초)
             try:
                 result = subprocess.run(
                     ["du", "-s", "-x", "-B1", "--", path],
                     capture_output=True,
                     text=True,
-                    timeout=5,
+                    timeout=3,
                     check=False
                 )
                 
