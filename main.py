@@ -12,6 +12,14 @@ app = FastAPI(title="Pod Writable Layer Finder", version="1.0")
 app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 
+@app.get("/api/node-info")
+async def api_node_info():
+    """현재 Pod가 떠있는 노드 정보"""
+    import socket
+    node_name = os.getenv("NODE_NAME", socket.gethostname())
+    return {"node_name": node_name}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})

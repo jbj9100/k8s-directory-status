@@ -31,6 +31,10 @@ spec:
         - containerPort: 8080
           protocol: TCP
         env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         - name: DU_TIMEOUT_SEC
           value: "60"
         - name: DU_CACHE_TTL_SEC
@@ -50,17 +54,8 @@ spec:
         - name: containerd
           mountPath: /host/var/lib/containerd
           readOnly: true
-        - name: containers
-          mountPath: /host/var/lib/containers
-          readOnly: true
         - name: kubelet-pods
           mountPath: /host/var/lib/kubelet/pods
-          readOnly: true
-        - name: log-pods
-          mountPath: /host/var/log/pods
-          readOnly: true
-        - name: log-containers
-          mountPath: /host/var/log/containers
           readOnly: true
         - name: host-proc
           mountPath: /host/proc
@@ -74,21 +69,9 @@ spec:
         hostPath:
           path: /var/lib/containerd
           type: DirectoryOrCreate
-      - name: containers
-        hostPath:
-          path: /var/lib/containers
-          type: DirectoryOrCreate
       - name: kubelet-pods
         hostPath:
           path: /var/lib/kubelet/pods
-          type: DirectoryOrCreate
-      - name: log-pods
-        hostPath:
-          path: /var/log/pods
-          type: DirectoryOrCreate
-      - name: log-containers
-        hostPath:
-          path: /var/log/containers
           type: DirectoryOrCreate
       - name: host-proc
         hostPath:
@@ -103,8 +86,6 @@ spec:
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}
-      nodeSelector:
-        kubernetes.io/hostname: k8s-master
 ---
 apiVersion: v1
 kind: Service

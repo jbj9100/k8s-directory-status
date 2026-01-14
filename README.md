@@ -1,26 +1,68 @@
-# DF/DU UI (FastAPI) — 노드 디스크 사용량 웹 UI
+# Pod Writable Layer Finder
 
-`df`는 **마운트(파일시스템)** 단위만 보여서, 같은 파일시스템(`/`) 안에서
-`/var/lib/containerd`, `/var/lib/kubelet`, `/var/log` 같은 **디렉터리별 사용량**을 보려면 `du`가 필요합니다.
+Kubernetes 노드에서 **PV 이외에 컨테이너가 직접 쓴 데이터**를 찾아주는 웹 UI.
 
-이 프로젝트는:
-- `df` 스타일: 마운트 목록/용량(총/사용/가용)
-- `du` 스타일: 특정 경로의 1-depth(하위 디렉터리) 용량 Top 리스트
-- 클릭으로 drill-down(폴더 탐색) 가능한 간단 UI
+## 목적
 
-## 설치/실행
-```bash
-conda create -n k8s-directory-status  python=3.10
-conda activate k8s-directory-status
-python -m pip install -r requirements.txt
-python -m uvicorn main:app --reload --port=8000 --host=0.0.0.0
+노드 디스크 용량이 부족할 때 **어떤 Pod가 범인인지** 빠르게 찾기 위함.
+
+## 조회 대상
+
+### 1. overlay upperdir (Container Writable Layer)
+- 컨테이너가 `/app`, `/tmp`, `/var` 등에 파일을 쓰면 여기에 쌓임
+- 경로: `/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/.../diff`
+- `/host/proc/1/mountinfo`에서 overlay mount의 `upperdir` 추출
+- `crictl ps`로 실행 중인 컨테이너만 필터링
+
+### 2. emptyDir (Disk 기반)
+- PV는 아니지만 `/var/lib/kubelet/pods/<uid>/volumes/kubernetes.io~empty-dir/` 아래로 쌓임
+- 디렉토리 직접 탐색으로 조회
+
+## 조회 방법
+
+```
+1. crictl ps -q → 실행 중인 컨테이너 ID 목록
+2. crictl ps --output=json → 컨테이너별 Pod 이름, Container 이름
+3. /host/proc/1/mountinfo → overlay mount에서 upperdir 추출
+4. /host/var/lib/kubelet/pods/*/volumes/kubernetes.io~empty-dir/* → emptyDir 조회
+5. du -sx -B1 <path> → 각 경로별 디스크 사용량 조회
 ```
 
-브라우저:
-- http://<node-ip>:8000
+## API
+
+### GET /api/containers/writable/stream
+- SSE 스트리밍으로 완료되는 순서대로 전송
+- `?skip_zero=true` → 0 바이트 제외
+
+### GET /api/containers/writable
+- JSON으로 전체 결과 반환 (용량 큰 순 정렬)
 
 ## 환경변수
-- `DU_TIMEOUT_SEC` (기본 15)
-- `DU_CACHE_TTL_SEC` (기본 20)
-- `DU_ONE_FS` (기본 1: du -x, 마운트 넘어가지 않음)
-- `ALLOWED_ROOTS` (옵션: 콤마로 경로 제한, 예: "/,/var/lib/kubelet,/var/lib/containerd")
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `DU_TIMEOUT_SEC` | 60 | du 명령 타임아웃 (초) |
+| `ACTUAL_MAX_WORKERS` | 6 | 병렬 du 실행 워커 수 |
+
+## 실행
+
+```bash
+# 로컬 테스트
+pip install -r requirements.txt
+uvicorn main:app --reload --port=8000
+
+# K8s 배포
+kubectl apply -f k8s/deploy.yaml
+```
+
+## emptyDir의 Pod UID로 Pod 찾기
+
+```bash
+kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "<Pod UID>"
+```
+
+## container 내부에서 실행해서 증가 확인
+```bash
+dd if=/dev/zero of=bigfile.bin bs=1M count=1024 status=progress
+```
+

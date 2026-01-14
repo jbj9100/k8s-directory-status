@@ -1,8 +1,14 @@
 let currentData = [];
 let currentSort = 'du_desc';
+let currentNode = '';
 
 async function loadMounts() {
   try {
+    // 노드 정보 가져오기
+    const nodeRes = await fetch('/api/node-info');
+    const nodeInfo = await nodeRes.json();
+    currentNode = nodeInfo.node_name || 'Unknown';
+
     currentData = [];
     renderTable();
 
@@ -41,6 +47,9 @@ async function loadMounts() {
 
 function renderTable() {
   const html = `
+    <div style="margin-bottom:10px;padding:10px;background:#e3f2fd;border-radius:4px;font-size:14px;">
+      <strong>🖥️ Node: ${escapeHtml(currentNode)}</strong>
+    </div>
     <div style="margin-bottom:10px;padding:8px;background:#fff3e0;border-radius:4px;font-size:11px;">
       <strong>💡 emptyDir의 Pod UID로 Pod 찾기:</strong>
       <pre style="background:#fff;padding:6px;border-radius:3px;margin-top:4px;overflow-x:auto;font-size:10px;">kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "&lt;Pod UID&gt;"</pre>
