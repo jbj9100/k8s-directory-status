@@ -10,16 +10,37 @@ except ImportError:
     from utils import human_bytes
 
 
+def get_running_container_ids() -> set:
+    """crictl ps로 실행 중인 컨테이너 ID 목록 가져오기"""
+    try:
+        r = subprocess.run(
+            ["crictl", "ps", "-q"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            # 전체 ID 반환 (12자 prefix도 매칭 가능하게)
+            return set(line.strip() for line in r.stdout.strip().split('\n') if line.strip())
+        return set()
+    except Exception:
+        return set()
+
+
 def get_overlay_upperdirs() -> List[Dict]:
     """
     mountinfo에서 직접 overlay upperdir 목록 추출
-    df 없이 바로 각 컨테이너의 writable layer 조회
+    crictl ps로 실행 중인 컨테이너만 필터링
     
     Returns:
         [{"mountpoint": "/run/containerd/.../rootfs", 
           "upperdir": "/var/lib/containerd/.../diff",
           "container_id": "abc123..."}]
     """
+    # 실행 중인 컨테이너 ID 목록
+    running_ids = get_running_container_ids()
+    
     candidates = ["/host/proc/1/mountinfo", "/proc/1/mountinfo"]
     
     mountinfo_path = None
@@ -56,17 +77,23 @@ def get_overlay_upperdirs() -> List[Dict]:
                 
                 # 컨테이너 ID 추출 (경로에서)
                 # /run/containerd/io.containerd.runtime.v2.task/k8s.io/{container_id}/rootfs
-                container_id = ""
+                container_id_full = ""
+                container_id_short = ""
                 if "/k8s.io/" in mountpoint:
                     try:
-                        container_id = mountpoint.split("/k8s.io/")[1].split("/")[0][:12]
+                        container_id_full = mountpoint.split("/k8s.io/")[1].split("/")[0]
+                        container_id_short = container_id_full[:12]
                     except:
-                        container_id = ""
+                        pass
+                
+                # 실행 중인 컨테이너만 (crictl ps로 필터링)
+                if running_ids and container_id_full not in running_ids:
+                    continue
                 
                 results.append({
                     "mountpoint": mountpoint,
                     "upperdir": upperdir,
-                    "container_id": container_id
+                    "container_id": container_id_short
                 })
     except Exception:
         pass
