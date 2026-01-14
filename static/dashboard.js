@@ -86,12 +86,17 @@ async function loadSingleDuSize(cell, path) {
       cell.textContent = j.total_human;
       cell.setAttribute('data-bytes', j.total_bytes || 0);
     } else {
-      cell.textContent = '-';
+      // 에러 상세 표시
+      cell.textContent = `❌ ${j.detail || r.status}`;
       cell.setAttribute('data-bytes', '0');
+      cell.style.color = '#d32f2f';
+      cell.style.fontSize = '10px';
     }
   } catch (e) {
-    cell.textContent = 'Error';
+    cell.textContent = `⚠️ ${e.message}`;
     cell.setAttribute('data-bytes', '0');
+    cell.style.color = '#d32f2f';
+    cell.style.fontSize = '10px';
   }
 }
 
