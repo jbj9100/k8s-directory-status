@@ -4,20 +4,22 @@ let rootDiskInfo = null;
 
 async function loadMounts() {
   try {
-    const r = await fetch('/api/mounts');
-    const data = await r.json();
+    // /api/mounts/actual: df 목록 + 실제 사용량(overlay는 upperdir만) 한 번에
+    const r = await fetch('/api/mounts/actual?skip_zero=true');
+    const result = await r.json();
 
     if (!r.ok) throw new Error('Failed to load mounts');
+
+    const data = result.mounts || [];
 
     // / 경로 분리
     rootDiskInfo = data.find(m => m.mountpoint === '/');
     currentData = data.filter(m => m.mountpoint !== '/');
 
-    renderTable();
+    renderTableWithActual();
     updateRootSummary();
-
-    // 비동기로 각 마운트의 DU 크기 조회
-    loadAllMountDuSizes();
+    calculateSummary();
+    sortTable(currentSort);
   } catch (e) {
     console.error('Failed to load mounts:', e);
     document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
@@ -47,7 +49,7 @@ function updateRootSummary() {
   `;
 }
 
-function renderTable() {
+function renderTableWithActual() {
   const html = `
     <table>
       <thead>
@@ -58,23 +60,40 @@ function renderTable() {
           <th>Size</th>
           <th>Avail</th>
           <th>Use%</th>
-          <th onclick="sortTable('du_desc')" style="background:#e8f5e9;">DU Size ⬇</th>
+          <th onclick="sortTable('du_desc')" style="background:#e8f5e9;">Actual Size ⬇</th>
         </tr>
       </thead>
       <tbody>
-        ${currentData.map(m => `
-          <tr>
-            <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
-            <td class="mono">${escapeHtml(m.device)}</td>
-            <td class="mono">${escapeHtml(m.fstype)}</td>
-            <td>${escapeHtml(m.total_h)}</td>
-            <td>${escapeHtml(m.free_h)}</td>
-            <td>
-              <span class="badge">${m.percent}%</span>
-            </td>
-            <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="0">⏳ Loading...</td>
-          </tr>
-        `).join('')}
+        ${currentData.map(m => {
+    const actualBytes = m.actual_bytes || 0;
+    const actualHuman = m.actual_human || '-';
+    const actualStatus = m.actual_status || 'unknown';
+
+    let cellContent = actualHuman;
+    let cellStyle = '';
+
+    if (actualStatus === 'error') {
+      cellContent = `❌ ${actualHuman}`;
+      cellStyle = 'color:#d32f2f;font-size:10px;';
+    } else if (actualStatus === 'skip') {
+      cellContent = 'N/A';
+      cellStyle = 'opacity:0.5;';
+    }
+
+    return `
+            <tr>
+              <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
+              <td class="mono">${escapeHtml(m.device)}</td>
+              <td class="mono">${escapeHtml(m.fstype)}</td>
+              <td>${escapeHtml(m.total_h || '-')}</td>
+              <td>${escapeHtml(m.free_h || '-')}</td>
+              <td>
+                <span class="badge">${m.percent || 0}%</span>
+              </td>
+              <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
+            </tr>
+          `;
+  }).join('')}
       </tbody>
     </table>
   `;
@@ -82,64 +101,7 @@ function renderTable() {
   document.getElementById('mounts-table').innerHTML = html;
 }
 
-async function loadAllMountDuSizes() {
-  const duCells = document.querySelectorAll('.du-size');
-  const allCells = Array.from(duCells);
-
-  // 배치 20개씩 (전체 조회)
-  const batchSize = 20;
-  let loaded = 0;
-
-  for (let i = 0; i < allCells.length; i += batchSize) {
-    const batch = allCells.slice(i, i + batchSize);
-    const promises = batch.map(cell => {
-      const path = cell.getAttribute('data-path');
-      return loadSingleDuSize(cell, path);
-    });
-    await Promise.all(promises);
-
-    loaded += batch.length;
-    console.log(`Loaded ${loaded}/${allCells.length} mounts`);
-  }
-
-  calculateSummary();
-  sortTable(currentSort);
-}
-
-async function loadSingleDuSize(cell, path) {
-  try {
-    const r = await fetch(`/api/du?path=${encodeURIComponent(path)}&depth=0`);
-    const j = await r.json();
-
-    if (r.ok && j.total_human) {
-      const bytes = j.total_bytes || 0;
-
-      // 0B이면 행 숨기기
-      if (bytes === 0) {
-        const row = cell.closest('tr');
-        if (row) {
-          row.style.display = 'none';
-        }
-        return;
-      }
-
-      cell.textContent = j.total_human;
-      cell.setAttribute('data-bytes', bytes);
-    } else {
-      cell.textContent = `❌ ${j.detail || r.status}`;
-      cell.setAttribute('data-bytes', '0');
-      cell.style.color = '#d32f2f';
-      cell.style.fontSize = '10px';
-    }
-  } catch (e) {
-    cell.textContent = `⚠️ ${e.message}`;
-    cell.setAttribute('data-bytes', '0');
-    cell.style.color = '#d32f2f';
-    cell.style.fontSize = '10px';
-  }
-
-  calculateSummary();
-}
+// 개별 du 조회 함수 제거 (이미 /api/mounts/actual에서 전부 받음)
 
 function calculateSummary() {
   const duCells = document.querySelectorAll('.du-size');
