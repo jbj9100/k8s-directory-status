@@ -4,22 +4,46 @@ let rootDiskInfo = null;
 
 async function loadMounts() {
   try {
-    // /api/mounts/actual: df 목록 + 실제 사용량(overlay는 upperdir만) 한 번에
-    const r = await fetch('/api/mounts/actual?skip_zero=true');
-    const result = await r.json();
-
-    if (!r.ok) throw new Error('Failed to load mounts');
-
-    const data = result.mounts || [];
-
-    // / 경로 분리
-    rootDiskInfo = data.find(m => m.mountpoint === '/');
-    currentData = data.filter(m => m.mountpoint !== '/');
-
+    // 초기 테이블 렌더링 (빈 상태)
+    currentData = [];
     renderTableWithActual();
     updateRootSummary();
-    calculateSummary();
-    sortTable(currentSort);
+
+    // SSE로 스트리밍 수신
+    const eventSource = new EventSource('/api/mounts/actual/stream?skip_zero=true');
+
+    eventSource.onmessage = function (event) {
+      if (event.data === '[DONE]') {
+        eventSource.close();
+        calculateSummary();
+        sortTable(currentSort);
+        console.log('Stream completed');
+        return;
+      }
+
+      try {
+        const mount = JSON.parse(event.data);
+
+        // / 경로 분리
+        if (mount.mountpoint === '/') {
+          rootDiskInfo = mount;
+          updateRootSummary();
+        } else {
+          // 즉시 추가하고 렌더링
+          currentData.push(mount);
+          renderTableWithActual();
+        }
+      } catch (e) {
+        console.error('Failed to parse mount data:', e);
+      }
+    };
+
+    eventSource.onerror = function (err) {
+      console.error('SSE error:', err);
+      eventSource.close();
+      document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';
+    };
+
   } catch (e) {
     console.error('Failed to load mounts:', e);
     document.getElementById('mounts-table').innerHTML = '<div class="loading">Error loading mounts</div>';

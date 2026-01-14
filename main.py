@@ -280,11 +280,67 @@ async def api_paths_summary():
     return JSONResponse({"paths": results})
 
 
+@app.get("/api/mounts/actual/stream")
+async def api_mounts_actual_stream(skip_zero: bool = True):
+    """
+    df로 필터된 mountpoint들을 비동기 병렬 조회.
+    완료되는 순서대로 즉시 스트리밍 전송 (SSE).
+    """
+    import json
+    from fastapi.responses import StreamingResponse
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from overlay_utils import get_actual_mount_size
+    
+    def generate():
+        mounts = get_mounts()
+        max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
+
+        def work(i: int, m: dict):
+            b, h, st = get_actual_mount_size(m["mountpoint"], m.get("fstype", ""))
+            return i, b, h, st
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futs = [ex.submit(work, i, m) for i, m in enumerate(mounts)]
+            
+            # 완료되는 대로 전송
+            for fut in as_completed(futs):
+                i, b, h, st = fut.result()
+                
+                # 0 바이트는 스킵
+                if skip_zero and st == "ok" and b == 0:
+                    continue
+                
+                # skip 상태도 제외
+                if st == "skip":
+                    continue
+                
+                m = mounts[i].copy()
+                m["actual_bytes"] = b
+                m["actual_human"] = h
+                m["actual_status"] = st
+                
+                # SSE 형식: data: {json}\n\n
+                yield f"data: {json.dumps(m)}\n\n"
+        
+        # 완료 신호
+        yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.get("/api/mounts/actual")
 async def api_mounts_actual(skip_zero: bool = True):
     """
     df로 필터된 mountpoint들을 비동기 병렬 조회.
     완료되는 순서대로 반환, skip_zero=true면 0 바이트는 제외.
+    (기존 호환성 유지용)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from overlay_utils import get_actual_mount_size
