@@ -55,16 +55,40 @@ async def api_mounts():
 @app.get("/api/du")
 async def api_du(path: str = Query("/", description="absolute path"), depth: int = Query(1, ge=0, le=5)):
     try:
-        # depth=0일 때는 du -d 1로 총 용량 조회
+        # depth=0일 때는 실제 사용량 조회
         if depth == 0:
+            # fstype 확인 (mounts 정보에서)
+            from mounts import get_mounts
+            mounts = get_mounts()
+            
+            fstype = None
+            for m in mounts:
+                if m.get('mountpoint') == path:
+                    fstype = m.get('fstype')
+                    break
+            
+            # overlay_utils 사용
+            if fstype:
+                from overlay_utils import get_actual_mount_size
+                size_bytes, size_human = get_actual_mount_size(path, fstype)
+                
+                if size_bytes >= 0:
+                    return JSONResponse({
+                        "path": path,
+                        "total_bytes": size_bytes,
+                        "total_human": size_human,
+                        "entries": []
+                    })
+                else:
+                    raise HTTPException(status_code=504, detail=size_human)
+            
+            # fstype을 못 찾은 경우 기존 방식
             import subprocess
-            # ALLOWED_ROOTS 체크
             if ALLOWED_ROOTS:
                 from utils import is_within
                 if not any(is_within(r, path) for r in ALLOWED_ROOTS):
                     raise HTTPException(status_code=403, detail="path is outside allowed roots")
             
-            # du -d 1 -x로 조회 (타임아웃 15초)
             try:
                 result = subprocess.run(
                     ["du", "-d", "1", "-x", "-B1", "--", path],
@@ -77,7 +101,6 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
                 if result.returncode in (0, 1):
                     lines = result.stdout.strip().split('\n')
                     if lines:
-                        # 마지막 줄이 총합
                         last_line = lines[-1]
                         parts = last_line.split('\t')
                         if len(parts) >= 1:

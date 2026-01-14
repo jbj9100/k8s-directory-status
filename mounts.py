@@ -54,10 +54,11 @@ def get_mounts():
     try:
         # 컨테이너 내부에서는 /host/* 경로로 마운트됨
         cmd = (
-            "df -hPT --output=source,fstype,size,used,avail,pcent,target | "
-            "awk 'NR==1 || $7==\"/\" || $7 ~ \"^/run/containerd\" || "
+            "df -hT --output=source,fstype,size,used,avail,pcent,target | "
+            "awk 'NR==1 || $7==\"/\" || "
             "$7 ~ \"^/host/var/lib/containerd\" || "
-            "$7 ~ \"^/host/var/lib/kubelet\" || $7 ~ \"^/host/var/lib/containers\" || "
+            "$7 ~ \"^/host/var/lib/kubelet\" || "
+            "$7 ~ \"^/host/var/lib/containers\" || "
             "$7 ~ \"^/host/run/containerd\"'"
         )
         

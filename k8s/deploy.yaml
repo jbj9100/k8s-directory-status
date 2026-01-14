@@ -65,6 +65,9 @@ spec:
         - name: host-proc
           mountPath: /host/proc
           readOnly: true
+        - name: run-containerd
+          mountPath: /host/run/containerd
+          readOnly: true
       
       volumes:
       - name: containerd
@@ -91,6 +94,10 @@ spec:
         hostPath:
           path: /proc
           type: Directory
+      - name: run-containerd
+        hostPath:
+          path: /run/containerd
+          type: DirectoryOrCreate
       
       dnsPolicy: ClusterFirst
       restartPolicy: Always
