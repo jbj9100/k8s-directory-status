@@ -25,35 +25,60 @@ function renderTable() {
       <thead>
         <tr>
           <th onclick="sortTable('mountpoint')">Mountpoint</th>
+          <th>Pod/Container</th>
           <th>Device</th>
           <th>Type</th>
           <th>Size</th>
-          <th>Used (FS)</th>
           <th>Avail</th>
           <th>Use%</th>
           <th onclick="sortTable('du_desc')" style="background:#e8f5e9;">DU Size ⬇</th>
         </tr>
       </thead>
       <tbody>
-        ${currentData.map(m => `
+        ${currentData.map(m => {
+    const podInfo = extractPodInfo(m.mountpoint);
+    return `
           <tr>
-            <td class="mono" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
+            <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(m.mountpoint)}">${escapeHtml(m.mountpoint)}</td>
+            <td class="mono" style="font-size:10px;color:#1565c0;">${escapeHtml(podInfo)}</td>
             <td class="mono">${escapeHtml(m.device)}</td>
             <td class="mono">${escapeHtml(m.fstype)}</td>
             <td>${escapeHtml(m.total_h)}</td>
-            <td>${escapeHtml(m.used_h)}</td>
             <td>${escapeHtml(m.free_h)}</td>
             <td>
               <span class="badge">${m.percent}%</span>
             </td>
             <td class="mono du-size" data-path="${escapeHtml(m.mountpoint)}" data-bytes="0">⏳ Loading...</td>
           </tr>
-        `).join('')}
+          `;
+  }).join('')}
       </tbody>
     </table>
   `;
 
   document.getElementById('mounts-table').innerHTML = html;
+}
+
+function extractPodInfo(path) {
+  // /host/var/lib/kubelet/pods/[pod-uid]/...
+  const podMatch = path.match(/\/pods\/([a-f0-9-]{36})/);
+  if (podMatch) {
+    return `Pod: ${podMatch[1].substring(0, 8)}...`;
+  }
+
+  // /host/var/lib/containers/storage/overlay/[hash]/merged
+  const containerMatch = path.match(/\/overlay\/([a-f0-9]{64})/);
+  if (containerMatch) {
+    return `Ctr: ${containerMatch[1].substring(0, 12)}...`;
+  }
+
+  // /host/run/containerd/.../[container-id]/rootfs
+  const containerdMatch = path.match(/\/k8s\.io\/([a-f0-9]{64})/);
+  if (containerdMatch) {
+    return `Ctd: ${containerdMatch[1].substring(0, 12)}...`;
+  }
+
+  return '-';
 }
 
 async function loadAllMountDuSizes() {

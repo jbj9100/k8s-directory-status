@@ -38,7 +38,7 @@ spec:
         - name: DU_ONE_FS
           value: "1"
         - name: ALLOWED_ROOTS
-          value: "/host/var/lib/containerd,/host/var/lib/containers,/host/var/lib/kubelet/pods,/host/var/log/pods,/host/var/log/containers"
+          value: "/,/host"
         resources:
           requests:
             memory: "128Mi"
