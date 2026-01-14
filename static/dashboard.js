@@ -86,16 +86,12 @@ async function loadAllMountDuSizes() {
   const duCells = document.querySelectorAll('.du-size');
   const allCells = Array.from(duCells);
 
-  // 초기 100개만
-  const initialLimit = 100;
-  const cellsToLoad = allCells.slice(0, initialLimit);
-
-  // 배치 20개씩
+  // 배치 20개씩 (전체 조회)
   const batchSize = 20;
   let loaded = 0;
 
-  for (let i = 0; i < cellsToLoad.length; i += batchSize) {
-    const batch = cellsToLoad.slice(i, i + batchSize);
+  for (let i = 0; i < allCells.length; i += batchSize) {
+    const batch = allCells.slice(i, i + batchSize);
     const promises = batch.map(cell => {
       const path = cell.getAttribute('data-path');
       return loadSingleDuSize(cell, path);
@@ -103,14 +99,7 @@ async function loadAllMountDuSizes() {
     await Promise.all(promises);
 
     loaded += batch.length;
-    console.log(`Loaded ${loaded}/${cellsToLoad.length} mounts`);
-  }
-
-  // 나머지는 Not loaded
-  for (let i = initialLimit; i < allCells.length; i++) {
-    allCells[i].textContent = 'Not loaded';
-    allCells[i].style.color = '#999';
-    allCells[i].style.fontSize = '10px';
+    console.log(`Loaded ${loaded}/${allCells.length} mounts`);
   }
 
   calculateSummary();

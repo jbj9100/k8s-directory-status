@@ -1,49 +1,56 @@
 from __future__ import annotations
+import os
 import subprocess
-import re
-from typing import Optional
+from typing import Optional, Tuple
 
-def extract_overlay_upperdir(mountpoint: str) -> Optional[str]:
+try:
+    from .utils import human_bytes
+except ImportError:
+    from utils import human_bytes
+
+
+MOUNTINFO_PATH = "/host/proc/1/mountinfo"
+
+
+def _strip_host_prefix(p: str) -> str:
+    """'/host/...' -> '...' 변환"""
+    return p[5:] if p.startswith("/host/") else p
+
+
+def extract_overlay_upperdir(host_mountpoint: str) -> Optional[str]:
     """
-    /proc/1/mountinfo에서 overlay 마운트의 upperdir 추출
+    host mountpoint(예: /run/containerd/.../rootfs) 기준으로
+    /host/proc/1/mountinfo에서 upperdir 추출
     
     Args:
-        mountpoint: 마운트 포인트 경로 (예: /run/containerd/.../rootfs)
+        host_mountpoint: 호스트 경로 (예: /run/containerd/.../rootfs)
     
     Returns:
         upperdir 경로 또는 None
     """
     try:
-        # 호스트의 mountinfo 읽기
-        with open('/host/proc/1/mountinfo', 'r') as f:
+        with open(MOUNTINFO_PATH, "r") as f:
             for line in f:
-                # 마운트 포인트 매칭
-                if f' {mountpoint} ' not in line:
+                # mountinfo의 mountpoint 필드에 정확히 매칭되는 라인만
+                if f" {host_mountpoint} " not in line:
                     continue
-                
-                # overlay 마운트인지 확인
-                if ' - overlay ' not in line:
+                if " - overlay " not in line:
                     continue
-                
-                # upperdir 추출
-                # 형식: ... - overlay overlay rw,...,upperdir=/path,...
-                parts = line.split(' - overlay overlay ')
-                if len(parts) < 2:
+
+                # "... - overlay overlay rw,relatime,lowerdir=...,upperdir=/xxx,workdir=/yyy"
+                parts = line.split(" - overlay overlay ", 1)
+                if len(parts) != 2:
                     continue
-                
-                options = parts[1].strip()
-                for opt in options.split(','):
-                    if opt.startswith('upperdir='):
-                        upperdir = opt[9:]  # 'upperdir=' 제거
-                        return upperdir
-        
+                opts = parts[1].strip()
+                for opt in opts.split(","):
+                    if opt.startswith("upperdir="):
+                        return opt[len("upperdir="):]
         return None
-    except Exception as e:
-        print(f"Failed to extract upperdir for {mountpoint}: {e}")
+    except Exception:
         return None
 
 
-def get_actual_mount_size(mountpoint: str, fstype: str) -> tuple[int, str]:
+def get_actual_mount_size(mountpoint: str, fstype: str) -> Tuple[int, str, str]:
     """
     마운트 포인트의 실제 사용량 조회
     
@@ -51,71 +58,47 @@ def get_actual_mount_size(mountpoint: str, fstype: str) -> tuple[int, str]:
     일반 마운트: 전체 경로 조회
     
     Returns:
-        (bytes, human_readable_string)
+        (bytes, human, status)
+        status: "ok" | "skip" | "error"
     """
-    target_path = mountpoint
-    
-    # overlay 마운트는 upperdir 추출
-    if fstype == 'overlay':
-        # mountpoint가 /host로 시작하면 호스트 경로로 변환
-        host_mountpoint = mountpoint
-        if mountpoint.startswith('/host/'):
-            # /host/run/containerd/... → /run/containerd/...
-            host_mountpoint = mountpoint[5:]
-        
-        upperdir = extract_overlay_upperdir(host_mountpoint)
-        if upperdir:
-            # upperdir는 호스트 절대 경로 → /host prefix 추가
-            target_path = f'/host{upperdir}'
-            print(f"Overlay {mountpoint} -> upperdir {target_path}")
-        else:
-            print(f"No upperdir for {mountpoint}, using mountpoint")
-    
-    # du 실행 (timeout은 환경변수에서)
-    import os
-    timeout_sec = int(os.getenv('DU_TIMEOUT_SEC', '15'))
-    
+    # 루트는 du로 재면 너무 큼 -> skip 처리
+    if mountpoint in ("/", "/host"):
+        return -1, "N/A", "skip"
+
+    timeout_sec = int(os.getenv("DU_TIMEOUT_SEC", "15"))
+
+    # mountpoint가 컨테이너 내부에 없고 /host로만 존재할 수 있어 보정
+    mp = mountpoint
+    if not os.path.exists(mp) and os.path.exists("/host" + mp):
+        mp = "/host" + mp
+
+    target_path = mp
+
+    # overlay면 upperdir만 du로 계산 (컨테이너별 실제 증가분)
+    if fstype == "overlay":
+        host_mp = _strip_host_prefix(mp)     # /host/run/... -> /run/...
+        upperdir = extract_overlay_upperdir(host_mp)
+        if not upperdir:
+            return 0, "0 B", "ok"  # upperdir 못 찾으면 0으로(스킵 대상)
+        target_path = "/host" + upperdir
+
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["du", "-sx", "-B1", "--", target_path],
             capture_output=True,
             text=True,
             timeout=timeout_sec,
-            check=False
+            check=False,
         )
-        
-        if result.returncode in (0, 1):
-            line = result.stdout.strip()
-            if line:
-                parts = line.split()
-                if parts and parts[0]:
-                    try:
-                        size_bytes = int(parts[0])
-                        return size_bytes, human_bytes(size_bytes)
-                    except ValueError:
-                        return -1, f"Parse error: {parts[0]}"
-        
-        # stderr 확인
-        if result.stderr:
-            return -1, f"du error: {result.stderr[:50]}"
-        
-        return 0, "0 B"
+        if r.returncode in (0, 1) and r.stdout.strip():
+            size_bytes = int(r.stdout.split()[0])
+            return size_bytes, human_bytes(size_bytes), "ok"
+
+        # du 실패
+        err = (r.stderr or "").strip()
+        return -1, f"du error: {err[:80]}", "error"
+
     except subprocess.TimeoutExpired:
-        return -1, f"Timeout ({timeout_sec}s)"
+        return -1, f"Timeout ({timeout_sec}s)", "error"
     except Exception as e:
-        return -1, f"Error: {e}"
-
-
-def human_bytes(size: int) -> str:
-    """바이트를 사람이 읽기 쉬운 형태로"""
-    if size < 0:
-        return "Error"
-    if size == 0:
-        return "0 B"
-    
-    units = ["B", "KiB", "MiB", "GiB", "TiB"]
-    i = 0
-    while size >= 1024.0 and i < len(units) - 1:
-        size /= 1024.0
-        i += 1
-    return f"{size:.1f} {units[i]}"
+        return -1, f"Error: {e}", "error"

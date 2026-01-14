@@ -71,9 +71,9 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
             # overlay_utils 사용
             if fstype:
                 from overlay_utils import get_actual_mount_size
-                size_bytes, size_human = get_actual_mount_size(path, fstype)
+                size_bytes, size_human, status = get_actual_mount_size(path, fstype)
                 
-                if size_bytes >= 0:
+                if status == "ok":
                     return JSONResponse({
                         "path": path,
                         "total_bytes": size_bytes,
@@ -278,3 +278,46 @@ async def api_paths_summary():
     results.sort(key=lambda x: x["total_bytes"], reverse=True)
     
     return JSONResponse({"paths": results})
+
+
+@app.get("/api/mounts/actual")
+async def api_mounts_actual(skip_zero: bool = True):
+    """
+    df로 필터된 mountpoint들을 순서대로 actual 사용량을 붙여서 반환.
+    skip_zero=true면 actual_bytes==0인 항목은 제외.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from overlay_utils import get_actual_mount_size
+    
+    mounts = get_mounts()
+
+    # 병렬(선택): mountpoint가 많을 때 응답속도 개선
+    max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
+
+    results = [None] * len(mounts)
+
+    def work(i: int, m: dict):
+        b, h, st = get_actual_mount_size(m["mountpoint"], m.get("fstype", ""))
+        return i, b, h, st
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = [ex.submit(work, i, m) for i, m in enumerate(mounts)]
+        for fut in as_completed(futs):
+            i, b, h, st = fut.result()
+            m = mounts[i].copy()
+            m["actual_bytes"] = b
+            m["actual_human"] = h
+            m["actual_status"] = st
+            results[i] = m
+
+    out = []
+    for m in results:
+        # 순서 유지
+        if not m:
+            continue
+        # 0인 것은 빼기 (요구사항)
+        if skip_zero and m.get("actual_status") == "ok" and m.get("actual_bytes") == 0:
+            continue
+        out.append(m)
+
+    return JSONResponse({"mounts": out})
