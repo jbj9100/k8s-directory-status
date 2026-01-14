@@ -9,9 +9,11 @@ from starlette.requests import Request
 try:
     from .mounts import get_mounts
     from .du_runner import DuCache, list_children_sizes
+    from .utils import human_bytes
 except ImportError:
     from mounts import get_mounts
     from du_runner import DuCache, list_children_sizes
+    from utils import human_bytes
 
 DU_TIMEOUT_SEC = int(os.getenv("DU_TIMEOUT_SEC", "15"))
 DU_CACHE_TTL_SEC = int(os.getenv("DU_CACHE_TTL_SEC", "180"))  # 3분
