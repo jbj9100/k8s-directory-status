@@ -97,9 +97,20 @@ function renderTable() {
       }
       nameDisplay += `<div style="font-size:9px;opacity:0.5;">Container ID: ${escapeHtml(m.container_id || '-')}</div>`;
     } else if (itemType === 'emptydir') {
-      // emptyDir: 볼륨 이름 + Pod UID
+      // emptyDir: 볼륨 이름 + Pod UID + 찾기 명령어
+      const podUid = m.pod_uid || '-';
+      const searchCmd = `kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "${podUid}"`;
+
       nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name || '-')}</div>`;
-      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(m.pod_uid || '-')}</div>`;
+      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(podUid)}</div>`;
+      nameDisplay += `<div style="font-size:8px;margin-top:4px;">
+        <span style="opacity:0.6;">찾기 명령어:</span>
+        <code onclick="navigator.clipboard.writeText(this.getAttribute('data-cmd')); alert('복사됨!')" 
+              data-cmd="${escapeHtml(searchCmd)}" 
+              style="cursor:pointer;background:#f5f5f5;padding:2px 4px;border-radius:2px;font-size:8px;display:block;margin-top:2px;word-break:break-all;">
+          kubectl get pods -A ... | grep "${escapeHtml(podUid.substring(0, 8))}..."
+        </code>
+      </div>`;
     } else {
       nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || m.pod_uid || '-')}</div>`;
     }
