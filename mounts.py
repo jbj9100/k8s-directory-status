@@ -25,12 +25,13 @@ def get_mounts_fallback():
     """psutil 기반 fallback"""
     mounts = []
     for partition in psutil.disk_partitions(all=True):
-        # 필터링
+        # 필터링 (컨테이너 내부에서는 /host/* 경로)
         mp = partition.mountpoint
         if not (mp == '/' or 
-                mp.startswith('/run/containerd') or
-                mp.startswith('/var/lib/kubelet') or
-                mp.startswith('/var/lib/containers')):
+                mp.startswith('/host/var/lib/containerd') or
+                mp.startswith('/host/var/lib/kubelet') or
+                mp.startswith('/host/var/lib/containers') or
+                mp.startswith('/host/run/containerd')):
             continue
         
         try:
@@ -52,10 +53,12 @@ def get_mounts():
     """df + awk로 필터링된 마운트 포인트 조회"""
     try:
         # df -hPT로 모든 마운트 정보 + awk 필터링
+        # 컨테이너 내부에서는 /host/* 경로로 마운트됨
         cmd = (
             "df -hPT --output=source,fstype,size,used,avail,pcent,target | "
-            "awk 'NR==1 || $7==\"/\" || $7 ~ \"^/run/containerd\" || "
-            "$7 ~ \"^/var/lib/kubelet\" || $7 ~ \"^/var/lib/containers\"'"
+            "awk 'NR==1 || $7==\"/\" || $7 ~ \"^/host/var/lib/containerd\" || "
+            "$7 ~ \"^/host/var/lib/kubelet\" || $7 ~ \"^/host/var/lib/containers\" || "
+            "$7 ~ \"^/host/run/containerd\"'"
         )
         
         result = subprocess.run(
