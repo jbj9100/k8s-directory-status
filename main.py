@@ -64,13 +64,13 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
                 if not any(is_within(r, path) for r in ALLOWED_ROOTS):
                     raise HTTPException(status_code=403, detail="path is outside allowed roots")
             
-            # du -d 1 -x로 조회 (타임아웃 3초)
+            # du -d 1 -x로 조회 (타임아웃 15초)
             try:
                 result = subprocess.run(
                     ["du", "-d", "1", "-x", "-B1", "--", path],
                     capture_output=True,
                     text=True,
-                    timeout=3,
+                    timeout=15,
                     check=False
                 )
                 

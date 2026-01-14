@@ -52,11 +52,11 @@ def get_mounts_fallback():
 def get_mounts():
     """df + awk로 필터링된 마운트 포인트 조회"""
     try:
-        # df -hPT로 모든 마운트 정보 + awk 필터링
         # 컨테이너 내부에서는 /host/* 경로로 마운트됨
         cmd = (
             "df -hPT --output=source,fstype,size,used,avail,pcent,target | "
-            "awk 'NR==1 || $7==\"/\" || $7 ~ \"^/host/var/lib/containerd\" || "
+            "awk 'NR==1 || $7==\"/\" || $7 ~ \"^/run/containerd\" || "
+            "$7 ~ \"^/host/var/lib/containerd\" || "
             "$7 ~ \"^/host/var/lib/kubelet\" || $7 ~ \"^/host/var/lib/containers\" || "
             "$7 ~ \"^/host/run/containerd\"'"
         )
