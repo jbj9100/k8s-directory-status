@@ -6,8 +6,8 @@ async function loadMounts() {
     currentData = [];
     renderTable();
 
-    // SSE로 스트리밍 수신 - Pod writable layer만 조회
-    const eventSource = new EventSource('/api/containers/writable/stream?skip_zero=true');
+    // SSE로 스트리밍 수신 - Pod writable layer만 조회 (0인 것도 포함)
+    const eventSource = new EventSource('/api/containers/writable/stream?skip_zero=false');
 
     eventSource.onmessage = function (event) {
       if (event.data === '[DONE]') {
@@ -98,11 +98,16 @@ function renderTable() {
 
 function calculateSummary() {
   let totalBytes = 0;
+  let nonZeroCount = 0;
+
   currentData.forEach(m => {
     if (m.actual_status === 'ok' && m.actual_bytes > 0) {
       totalBytes += m.actual_bytes;
+      nonZeroCount++;
     }
   });
+
+  const zeroCount = currentData.length - nonZeroCount;
 
   const summaryBox = document.getElementById('summary-box');
   summaryBox.style.display = 'flex';
@@ -110,6 +115,11 @@ function calculateSummary() {
     <div class="summary-item">
       <div class="summary-label">총 컨테이너</div>
       <div class="summary-value">${currentData.length}개</div>
+    </div>
+    <div class="summary-item">
+      <div class="summary-label">writable 있음 / 없음</div>
+      <div class="summary-value" style="color:#d32f2f;">${nonZeroCount}개</div>
+      <div style="font-size:11px;opacity:0.7;">/ ${zeroCount}개</div>
     </div>
     <div class="summary-item">
       <div class="summary-label">총 writable 사용량</div>
