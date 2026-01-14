@@ -283,41 +283,41 @@ async def api_paths_summary():
 @app.get("/api/mounts/actual")
 async def api_mounts_actual(skip_zero: bool = True):
     """
-    df로 필터된 mountpoint들을 순서대로 actual 사용량을 붙여서 반환.
-    skip_zero=true면 actual_bytes==0인 항목은 제외.
+    df로 필터된 mountpoint들을 비동기 병렬 조회.
+    완료되는 순서대로 반환, skip_zero=true면 0 바이트는 제외.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from overlay_utils import get_actual_mount_size
     
     mounts = get_mounts()
 
-    # 병렬(선택): mountpoint가 많을 때 응답속도 개선
+    # 병렬 조회
     max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
-
-    results = [None] * len(mounts)
 
     def work(i: int, m: dict):
         b, h, st = get_actual_mount_size(m["mountpoint"], m.get("fstype", ""))
         return i, b, h, st
 
+    out = []
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futs = [ex.submit(work, i, m) for i, m in enumerate(mounts)]
+        
+        # 완료되는 대로 처리 (순서 무관)
         for fut in as_completed(futs):
             i, b, h, st = fut.result()
+            
+            # 0 바이트는 즉시 스킵
+            if skip_zero and st == "ok" and b == 0:
+                continue
+            
+            # skip 상태도 제외
+            if st == "skip":
+                continue
+            
             m = mounts[i].copy()
             m["actual_bytes"] = b
             m["actual_human"] = h
             m["actual_status"] = st
-            results[i] = m
-
-    out = []
-    for m in results:
-        # 순서 유지
-        if not m:
-            continue
-        # 0인 것은 빼기 (요구사항)
-        if skip_zero and m.get("actual_status") == "ok" and m.get("actual_bytes") == 0:
-            continue
-        out.append(m)
+            out.append(m)
 
     return JSONResponse({"mounts": out})
