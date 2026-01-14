@@ -49,26 +49,13 @@ async def index(request: Request):
 
 @app.get("/api/mounts")
 async def api_mounts():
-    """필터링된 마운트 포인트만 반환"""
-    all_mounts = get_mounts()
-    
-    # 필요한 경로만 필터링
-    filtered = []
-    for m in all_mounts:
-        path = m.get('mountpoint', '')
-        # /, /var/lib/containers*, /var/lib/kubelet/pods*, /var/lib/containerd*만
-        if (path == '/' or 
-            path.startswith('/var/lib/containers') or
-            path.startswith('/var/lib/kubelet/pods') or
-            path.startswith('/var/lib/containerd')):
-            filtered.append(m)
-    
-    return JSONResponse(filtered)
+    """필터링된 마운트 포인트 반환 (df + awk)"""
+    return JSONResponse(get_mounts())
 
 @app.get("/api/du")
 async def api_du(path: str = Query("/", description="absolute path"), depth: int = Query(1, ge=0, le=5)):
     try:
-        # depth=0일 때는 빠른 du -s 사용
+        # depth=0일 때는 du -d 1로 총 용량 조회
         if depth == 0:
             import subprocess
             # ALLOWED_ROOTS 체크
@@ -77,10 +64,10 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
                 if not any(is_within(r, path) for r in ALLOWED_ROOTS):
                     raise HTTPException(status_code=403, detail="path is outside allowed roots")
             
-            # du -s -x로 빠르게 조회 (타임아웃 3초)
+            # du -d 1 -x로 조회 (타임아웃 3초)
             try:
                 result = subprocess.run(
-                    ["du", "-s", "-x", "-B1", "--", path],
+                    ["du", "-d", "1", "-x", "-B1", "--", path],
                     capture_output=True,
                     text=True,
                     timeout=3,
@@ -88,15 +75,19 @@ async def api_du(path: str = Query("/", description="absolute path"), depth: int
                 )
                 
                 if result.returncode in (0, 1):
-                    line = result.stdout.strip()
-                    if line:
-                        size_bytes = int(line.split()[0])
-                        return JSONResponse({
-                            "path": path,
-                            "total_bytes": size_bytes,
-                            "total_human": human_bytes(size_bytes),
-                            "entries": []
-                        })
+                    lines = result.stdout.strip().split('\n')
+                    if lines:
+                        # 마지막 줄이 총합
+                        last_line = lines[-1]
+                        parts = last_line.split('\t')
+                        if len(parts) >= 1:
+                            size_bytes = int(parts[0])
+                            return JSONResponse({
+                                "path": path,
+                                "total_bytes": size_bytes,
+                                "total_human": human_bytes(size_bytes),
+                                "entries": []
+                            })
             except subprocess.TimeoutExpired:
                 raise HTTPException(status_code=504, detail="du timeout (path too large)")
             except Exception as e:

@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>Node Monitor Dashboard</title>
+  <title>Node Disk Monitor</title>
   <style>
     * {
       box-sizing: border-box;
@@ -22,16 +22,7 @@
       font-weight: 600;
     }
 
-    h2 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-      font-weight: 600;
-    }
-
     .dashboard {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
       max-width: 1600px;
       margin: 0 auto;
     }
@@ -41,67 +32,6 @@
       border-radius: 12px;
       padding: 16px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    }
-
-    .metrics {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-    }
-
-    .metric {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 16px;
-      border-radius: 8px;
-    }
-
-    .metric-label {
-      font-size: 12px;
-      opacity: 0.9;
-      margin-bottom: 4px;
-    }
-
-    .metric-value {
-      font-size: 28px;
-      font-weight: 700;
-    }
-
-    .metric-sub {
-      font-size: 11px;
-      opacity: 0.8;
-      margin-top: 4px;
-    }
-
-    .paths-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 12px;
-    }
-
-    .path-item {
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 12px;
-      transition: all 0.2s;
-    }
-
-    .path-item:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      transform: translateY(-2px);
-    }
-
-    .path-name {
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      font-family: monospace;
-    }
-
-    .path-size {
-      font-size: 24px;
-      font-weight: 700;
-      color: #667eea;
     }
 
     table {
@@ -130,11 +60,6 @@
       text-align: center;
       padding: 40px;
       color: #999;
-    }
-
-    .process-table {
-      max-height: 300px;
-      overflow-y: auto;
     }
 
     .badge {
@@ -174,148 +99,22 @@
 <body>
   <div class="dashboard">
     <div class="header">
-      <h1>🖥️ Node Monitor Dashboard</h1>
-      <button class="refresh-btn" onclick="loadAll()">🔄 Refresh</button>
+      <h1>💾 Node Disk Monitor</h1>
+      <button class="refresh-btn" onclick="loadMounts()">🔄 Refresh</button>
     </div>
 
-    <!-- 실시간 시스템 모니터링 -->
     <div class="card">
-      <h2>⚡ Real-time System Stats</h2>
-      <div class="metrics" id="system-metrics">
-        <div class="loading">Loading...</div>
-      </div>
-    </div>
-
-    <!-- 주요 경로 디스크 사용량 -->
-    <div class="card">
-      <div class="header" style="margin-bottom: 16px;">
-        <h2>💾 Key Paths Disk Usage</h2>
-        <button class="refresh-btn" onclick="loadPathsSummaryManual()">🔍 Load Disk Usage</button>
-      </div>
-      <div class="paths-grid" id="paths-grid">
-        <div class="loading">Click "Load Disk Usage" button</div>
-      </div>
-    </div>
-
-    <!-- Top 프로세스 -->
-    <div class="card">
-      <h2>📊 Top Processes (CPU)</h2>
-      <div class="process-table" id="top-processes">
-        <div class="loading">Loading...</div>
-      </div>
-    </div>
-
-    <!-- 마운트 포인트 -->
-    <div class="card">
-      <h2>📁 Mount Points (Click to view details)</h2>
       <div id="mounts-table">
         <div class="loading">Loading...</div>
       </div>
     </div>
   </div>
 
-  <!-- 경로 상세 모달 -->
-  <div id="path-modal" class="modal" style="display:none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="modal-path">/</h3>
-        <div>
-          <button class="btn-small" onclick="modalGoUp()">⬆ Up</button>
-          <button class="btn-small" onclick="closeModal()">✕ Close</button>
-        </div>
-      </div>
-      <div id="modal-body">
-        <div class="loading">Loading...</div>
-      </div>
-    </div>
-  </div>
-
-  <style>
-    .modal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .modal-content {
-      background: white;
-      border-radius: 12px;
-      width: 90%;
-      max-width: 900px;
-      max-height: 80vh;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .modal-header {
-      padding: 16px;
-      border-bottom: 1px solid #eee;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .modal-header h3 {
-      margin: 0;
-      font-family: monospace;
-      font-size: 16px;
-    }
-
-    .modal-body {
-      padding: 16px;
-      overflow-y: auto;
-      flex: 1;
-    }
-
-    .btn-small {
-      padding: 6px 12px;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 12px;
-      margin-left: 8px;
-    }
-
-    .btn-small:hover {
-      background: #5568d3;
-    }
-
-    .dir-item {
-      padding: 10px;
-      border-bottom: 1px solid #f0f0f0;
-      display: flex;
-      justify-content: space-between;
-      cursor: pointer;
-    }
-
-    .dir-item:hover {
-      background: #f5f5f5;
-    }
-
-    .mount-row {
-      cursor: pointer;
-    }
-
-    .mount-row:hover {
-      background: #f9f9f9;
-    }
-  </style>
-
   <script src="/static/dashboard.js"></script>
   <script>
-    loadAll();
-    // 3초마다 자동 새로고침 (시스템 상태만)
-    setInterval(loadAll, 3000);
+    loadMounts();
+    // 30초마다 자동 새로고침
+    setInterval(loadMounts, 30000);
   </script>
 </body>
 
