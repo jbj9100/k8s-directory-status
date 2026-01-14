@@ -40,15 +40,10 @@ async function loadMounts() {
 }
 
 function renderTable() {
-  const podUidCmd = 'kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "<Pod UID>"';
-
   const html = `
     <div style="margin-bottom:10px;padding:8px;background:#fff3e0;border-radius:4px;font-size:11px;">
       <strong>💡 emptyDir의 Pod UID로 Pod 찾기:</strong>
-      <code onclick="navigator.clipboard.writeText('${podUidCmd}'); alert('복사됨!');" 
-            style="cursor:pointer;background:#fff;padding:4px 8px;border-radius:3px;display:block;margin-top:4px;word-break:break-all;">
-        ${escapeHtml(podUidCmd)}
-      </code>
+      <pre style="background:#fff;padding:6px;border-radius:3px;margin-top:4px;overflow-x:auto;font-size:10px;">kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "&lt;Pod UID&gt;"</pre>
     </div>
     <table>
       <thead>
