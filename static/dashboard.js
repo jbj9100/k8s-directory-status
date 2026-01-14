@@ -48,7 +48,7 @@ async function loadMounts() {
 function renderTable() {
   const html = `
     <div style="margin-bottom:10px;padding:10px;background:#e3f2fd;border-radius:4px;font-size:14px;">
-      <strong>🖥️ Node: ${escapeHtml(currentNode)}</strong>
+      <strong>🖥️ Connected to: ${escapeHtml(currentNode)} (Aggregator)</strong>
     </div>
     <div style="margin-bottom:10px;padding:8px;background:#fff3e0;border-radius:4px;font-size:11px;">
       <strong>💡 emptyDir의 Pod UID로 Pod 찾기:</strong>
@@ -65,73 +65,96 @@ function renderTable() {
       </thead>
       <tbody>
         ${currentData.length === 0 ? '<tr><td colspan="4" style="text-align:center;opacity:0.6;">조회 중...</td></tr>' : ''}
-        ${currentData.map(m => {
-    const actualBytes = m.actual_bytes || 0;
-    const actualHuman = m.actual_human || '-';
-    const actualStatus = m.actual_status || 'unknown';
-    const itemType = m.type || '';
-
-    let cellContent = actualHuman;
-    let cellStyle = 'font-weight:bold;';
-    let statusIcon = '✅';
-
-    if (actualStatus === 'error') {
-      cellContent = actualHuman;
-      cellStyle = 'color:#d32f2f;font-size:11px;';
-      statusIcon = '❌';
-    } else if (actualBytes > 1024 * 1024 * 1024) {
-      cellStyle = 'color:#d32f2f;font-weight:bold;font-size:14px;';
-      statusIcon = '🔥';
-    } else if (actualBytes > 100 * 1024 * 1024) {
-      cellStyle = 'color:#f57c00;font-weight:bold;';
-      statusIcon = '⚠️';
-    }
-
-    // Type 라벨
-    let typeLabel = '';
-    let typeStyle = 'font-size:10px;padding:2px 6px;border-radius:3px;';
-    if (itemType === 'overlay') {
-      typeLabel = 'overlay';
-      typeStyle += 'background:#e3f2fd;color:#1976d2;';
-    } else if (itemType === 'emptydir') {
-      typeLabel = 'emptyDir';
-      typeStyle += 'background:#fff3e0;color:#f57c00;';
-    }
-
-    // Pod/Container 이름
-    let nameDisplay = '';
-    if (itemType === 'overlay') {
-      // overlay: Pod 이름 + Container 이름 + Container ID
-      if (m.pod) {
-        nameDisplay = `<div style="font-weight:bold;">${escapeHtml(m.pod)}</div>`;
-        if (m.container_name) {
-          nameDisplay += `<div style="font-size:10px;opacity:0.7;">${escapeHtml(m.container_name)}</div>`;
-        }
-      }
-      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Container ID: ${escapeHtml(m.container_id || '-')}</div>`;
-    } else if (itemType === 'emptydir') {
-      // emptyDir: 볼륨 이름 + Pod UID만 표시 (명령어는 상단에 한번만)
-      const podUid = m.pod_uid || '-';
-      nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name || '-')}</div>`;
-      nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(podUid)}</div>`;
-    } else {
-      nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || m.pod_uid || '-')}</div>`;
-    }
-
-    return `
-            <tr>
-              <td><span style="${typeStyle}">${typeLabel}</span></td>
-              <td>${nameDisplay}</td>
-              <td class="mono du-size" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
-              <td>${statusIcon}</td>
-            </tr>
-          `;
-  }).join('')}
+        ${renderRowsByNode()}
       </tbody>
     </table>
   `;
 
   document.getElementById('mounts-table').innerHTML = html;
+}
+
+function renderRowsByNode() {
+  // 노드 목록 추출 (정렬)
+  const nodes = [...new Set(currentData.map(d => d.node_name || 'Unknown'))].sort();
+
+  return nodes.map(nodeName => {
+    const nodeItems = currentData.filter(d => d.node_name === nodeName || (!d.node_name && nodeName === 'Unknown'));
+
+    // 노드 헤더
+    let rows = `
+      <tr style="background:#eeeeee;">
+        <td colspan="4" style="padding:8px 10px;border-bottom:2px solid #ddd;">
+          <strong>📦 Node: ${escapeHtml(nodeName)}</strong> (${nodeItems.length} items)
+        </td>
+      </tr>
+    `;
+
+    // 아이템 렌더링
+    rows += nodeItems.map(m => {
+      const actualBytes = m.actual_bytes || 0;
+      const actualHuman = m.actual_human || '-';
+      const actualStatus = m.actual_status || 'unknown';
+      const itemType = m.type || '';
+
+      let cellContent = actualHuman;
+      let cellStyle = 'font-weight:bold;';
+      let statusIcon = '✅';
+
+      if (actualStatus === 'error') {
+        cellContent = actualHuman;
+        cellStyle = 'color:#d32f2f;font-size:11px;';
+        statusIcon = '❌';
+      } else if (actualBytes > 1024 * 1024 * 1024) {
+        cellStyle = 'color:#d32f2f;font-weight:bold;font-size:14px;';
+        statusIcon = '🔥';
+      } else if (actualBytes > 100 * 1024 * 1024) {
+        cellStyle = 'color:#f57c00;font-weight:bold;';
+        statusIcon = '⚠️';
+      }
+
+      // Type 라벨
+      let typeLabel = '';
+      let typeStyle = 'font-size:10px;padding:2px 6px;border-radius:3px;';
+      if (itemType === 'overlay') {
+        typeLabel = 'overlay';
+        typeStyle += 'background:#e3f2fd;color:#1976d2;';
+      } else if (itemType === 'emptydir') {
+        typeLabel = 'emptyDir';
+        typeStyle += 'background:#fff3e0;color:#f57c00;';
+      }
+
+      // Pod/Container 이름
+      let nameDisplay = '';
+      if (itemType === 'overlay') {
+        // overlay: Pod 이름 + Container 이름 + Container ID
+        if (m.pod) {
+          nameDisplay = `<div style="font-weight:bold;">${escapeHtml(m.pod)}</div>`;
+          if (m.container_name) {
+            nameDisplay += `<div style="font-size:10px;opacity:0.7;">${escapeHtml(m.container_name)}</div>`;
+          }
+        }
+        nameDisplay += `<div style="font-size:9px;opacity:0.5;">Container ID: ${escapeHtml(m.container_id || '-')}</div>`;
+      } else if (itemType === 'emptydir') {
+        // emptyDir: 볼륨 이름 + Pod UID만 표시 (명령어는 상단에 한번만)
+        const podUid = m.pod_uid || '-';
+        nameDisplay = `<div style="font-weight:bold;">emptyDir: ${escapeHtml(m.volume_name || '-')}</div>`;
+        nameDisplay += `<div style="font-size:9px;opacity:0.5;">Pod UID: ${escapeHtml(podUid)}</div>`;
+      } else {
+        nameDisplay = `<div style="font-size:10px;opacity:0.5;">${escapeHtml(m.container_id || m.pod_uid || '-')}</div>`;
+      }
+
+      return `
+              <tr>
+                <td><span style="${typeStyle}">${typeLabel}</span></td>
+                <td>${nameDisplay}</td>
+                <td class="mono du-size" data-bytes="${actualBytes}" style="${cellStyle}">${cellContent}</td>
+                <td>${statusIcon}</td>
+              </tr>
+            `;
+    }).join('');
+
+    return rows;
+  }).join('');
 }
 
 function calculateSummary() {

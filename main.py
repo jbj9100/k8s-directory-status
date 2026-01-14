@@ -25,19 +25,19 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.get("/api/containers/writable/stream")
-async def api_containers_writable_stream(skip_zero: bool = False):
+@app.get("/api/local/writable/stream")
+async def api_local_writable_stream(skip_zero: bool = False):
     """
-    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회
-    - overlay upperdir: 컨테이너 writable layer
-    - emptyDir: /var/lib/kubelet/pods/.../volumes/kubernetes.io~empty-dir/
-    완료되는 순서대로 SSE 스트리밍
+    [Local] Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회
     """
     import json
+    import socket
     from fastapi.responses import StreamingResponse
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from overlay_utils import get_all_writable_paths, get_upperdir_size
     
+    my_node_name = os.getenv("NODE_NAME", socket.gethostname())
+
     def generate():
         items = get_all_writable_paths()
         max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
@@ -53,11 +53,11 @@ async def api_containers_writable_stream(skip_zero: bool = False):
             for fut in as_completed(futs):
                 item, b, h, st = fut.result()
                 
-                # 0 바이트는 스킵 (옵션)
                 if skip_zero and st == "ok" and b == 0:
                     continue
                 
                 result = {
+                    "node_name": my_node_name,
                     "type": item.get("type", ""),
                     "container_id": item.get("container_id", ""),
                     "container_name": item.get("container_name", ""),
@@ -70,7 +70,6 @@ async def api_containers_writable_stream(skip_zero: bool = False):
                     "actual_status": st,
                 }
                 
-                # emptyDir인 경우 추가 정보
                 if item.get("type") == "emptydir":
                     result["volume_name"] = item.get("volume_name", "")
                     result["pod_uid"] = item.get("pod_uid", "")
@@ -89,15 +88,14 @@ async def api_containers_writable_stream(skip_zero: bool = False):
     )
 
 
-@app.get("/api/containers/writable")
-async def api_containers_writable(skip_zero: bool = False):
-    """
-    Pod가 PV 이외에 컨테이너 자체에 쓴 데이터 조회 (JSON)
-    - overlay upperdir: 컨테이너 writable layer
-    - emptyDir: /var/lib/kubelet/pods/.../volumes/kubernetes.io~empty-dir/
-    """
+@app.get("/api/local/writable")
+async def api_local_writable(skip_zero: bool = False):
+    """[Local] JSON Non-streaming"""
+    import socket
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from overlay_utils import get_all_writable_paths, get_upperdir_size
+
+    my_node_name = os.getenv("NODE_NAME", socket.gethostname())
     
     items = get_all_writable_paths()
     max_workers = int(os.getenv("ACTUAL_MAX_WORKERS", "6"))
@@ -118,6 +116,7 @@ async def api_containers_writable(skip_zero: bool = False):
                 continue
             
             result = {
+                "node_name": my_node_name,
                 "type": item.get("type", ""),
                 "container_id": item.get("container_id", ""),
                 "container_name": item.get("container_name", ""),
@@ -136,7 +135,82 @@ async def api_containers_writable(skip_zero: bool = False):
             
             out.append(result)
     
-    # 용량 큰 순으로 정렬
     out.sort(key=lambda x: x.get("actual_bytes", 0), reverse=True)
-    
     return JSONResponse({"containers": out})
+
+
+@app.get("/api/containers/writable/stream")
+async def api_cluster_writable_stream(skip_zero: bool = False):
+    """
+    [Cluster] 모든 노드의 Pod 데이터 조회 (Aggregation)
+    status-headless 서비스를 통해 Peer 찾아서 집계
+    """
+    import socket
+    import asyncio
+    import httpx
+    import json
+    from fastapi.responses import StreamingResponse
+    
+    # 1. Peer Discovery
+    try:
+        # Headless Service 이름으로 DNS 조회
+        # 같은 namespace라고 가정 (default)
+        infos = socket.getaddrinfo("status-headless", 8080, proto=socket.IPPROTO_TCP)
+        # IP 주소만 추출 (IPv4)
+        peers = set(info[4][0] for info in infos)
+    except Exception as e:
+        print(f"Discovery failed: {e}")
+        # 실패 시 로컬호스트만이라도? 아니면 빈 집합
+        peers = {"127.0.0.1"}
+    
+    async def cluster_generator():
+        queue = asyncio.Queue()
+        # active_workers count
+        state = {"active": len(peers)}
+        
+        async def fetch_peer(ip):
+            # Peer의 Local API 호출
+            url = f"http://{ip}:8080/api/local/writable/stream?skip_zero={str(skip_zero).lower()}"
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    async with client.stream("GET", url) as response:
+                        async for line in response.aiter_lines():
+                            # line example: "data: {...}" or "data: [DONE]" or ""
+                            if not line.strip():
+                                continue
+                            if line.startswith("data: [DONE]"):
+                                continue
+                            if line.startswith("data: "):
+                                # 그대로 큐에 넣음 (이미 JSON 포맷팅 되어있음)
+                                await queue.put(line)
+            except Exception as e:
+                print(f"Error fetching {ip}: {e}")
+            finally:
+                state["active"] -= 1
+                if state["active"] == 0:
+                    await queue.put(None) # Signal done
+
+        # Launch workers
+        if not peers:
+             await queue.put(None)
+        else:
+            for ip in peers:
+                asyncio.create_task(fetch_peer(ip))
+            
+        # Yield result
+        while True:
+            line = await queue.get()
+            if line is None:
+                break
+            yield f"{line}\n\n"
+        
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        cluster_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no"
+        }
+    )
