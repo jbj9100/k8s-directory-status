@@ -53,9 +53,6 @@ function renderTable() {
 
   const headerHtml = `
     <div style="margin-bottom:20px;">
-      <div style="padding:10px;background:#e3f2fd;border-radius:4px;font-size:14px;margin-bottom:10px;">
-        <strong>🖥️ Connected to: ${escapeHtml(currentNode)} (Aggregator)</strong>
-      </div>
       <div style="padding:8px;background:#fff3e0;border-radius:4px;font-size:11px;">
         <strong>💡 emptyDir의 Pod UID로 Pod 찾기:</strong>
         <pre style="background:#fff;padding:6px;border-radius:3px;margin-top:4px;overflow-x:auto;font-size:10px;">kubectl get pods -A -o custom-columns=NS:.metadata.namespace,POD:.metadata.name,UID:.metadata.uid --no-headers | grep "&lt;Pod UID&gt;"</pre>
