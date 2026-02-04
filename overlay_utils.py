@@ -54,6 +54,32 @@ def get_container_info() -> Dict[str, Dict]:
         return {}
 
 
+def get_pod_info() -> Dict[str, Dict]:
+    """crictl pods로 Pod 정보 가져오기 (pod_uid -> {name, namespace})"""
+    try:
+        import json
+        r = subprocess.run(
+            ["crictl", "pods", "--output=json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            data = json.loads(r.stdout)
+            result = {}
+            for p in data.get("items", []):
+                pod_uid = p.get("id", "")
+                result[pod_uid] = {
+                    "name": p.get("metadata", {}).get("name", ""),
+                    "namespace": p.get("metadata", {}).get("namespace", ""),
+                }
+            return result
+        return {}
+    except Exception:
+        return {}
+
+
 def get_overlay_upperdirs() -> List[Dict]:
     """
     overlay upperdir 조회 (컨테이너 writable layer)
@@ -131,6 +157,9 @@ def get_emptydir_volumes() -> List[Dict]:
     if not os.path.exists(base_path):
         return []
     
+    # Pod UID -> Pod Name 매핑 정보 가져오기
+    pod_info = get_pod_info()
+    
     results = []
     try:
         for pod_uid in os.listdir(base_path):
@@ -140,15 +169,20 @@ def get_emptydir_volumes() -> List[Dict]:
             if not os.path.exists(emptydir_base):
                 continue
             
+            # Pod 정보 가져오기
+            info = pod_info.get(pod_uid, {})
+            pod_name = info.get("name", "")
+            namespace = info.get("namespace", "")
+            
             for vol_name in os.listdir(emptydir_base):
                 vol_path = os.path.join(emptydir_base, vol_name)
                 if os.path.isdir(vol_path):
                     results.append({
                         "type": "emptydir",
                         "container_id": "",
-                        "container_name": "",
-                        "pod": "",  # TODO: pod 이름 매핑 필요
-                        "namespace": "",
+                        "container_name": vol_name,  # emptydir은 볼륨 이름 표시
+                        "pod": pod_name,
+                        "namespace": namespace,
                         "path": vol_path,
                         "mountpoint": vol_path,
                         "volume_name": vol_name,
