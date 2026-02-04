@@ -1,0 +1,17 @@
+# Ansible 인벤토리 예시
+# 이 파일을 'hosts' 또는 원하는 이름으로 저장하세요
+
+[masters]
+master ansible_host=192.168.1.10 ansible_user=root
+
+[workers]
+worker1 ansible_host=192.168.1.11 ansible_user=root
+worker2 ansible_host=192.168.1.12 ansible_user=root
+worker3 ansible_host=192.168.1.13 ansible_user=root
+
+[k8s:children]
+masters
+workers
+
+[k8s:vars]
+ansible_python_interpreter=/usr/bin/python3
